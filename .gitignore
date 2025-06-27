@@ -1,1 +1,13 @@
+// ignoring txt files 
 *.txt
+
+// ignoring macos files
+*.DS_Store
+
+// ignoring cabal project 
+*.cabal
+// ignoring generated LICENSE file
+LICENSE
+
+// ignoring ghci generated build folder
+/dist-newstyle
