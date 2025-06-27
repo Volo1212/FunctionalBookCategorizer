@@ -11,3 +11,6 @@ LICENSE
 
 // ignoring ghci generated build folder
 /dist-newstyle
+
+// ignoring books folder for obvious reasons (CONTENT BIIIIIIG)
+/books
