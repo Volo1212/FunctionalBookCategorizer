@@ -36,42 +36,39 @@ getSentences = filter textNotNull . T.splitOn (T.pack ".") . T.toLower
 getWordsFromSentence :: T.Text -> [T.Text]
 getWordsFromSentence = concat . map T.words . getSentences
 
+-- TODO:
+-- getTotalWordCount = max 1 (length totalWords)
+
+calculateAvgSentenceLength :: [T.Text] -> Double
+calculateAvgSentenceLength sentences = averageOf (fromIntegral . length . T.words) sentences
+
+calculateUniqueWordRatio :: [T.Text] -> Double
+calculateUniqueWordRatio totalWords = 
+    let totalWordCount = fromIntegral $ max 1 (length totalWords)
+        uniqueWordCount = fromIntegral $ Set.size (Set.fromList totalWords)
+    in uniqueWordCount / totalWordCount
+
 -- pure function which extracts features from text
 -- saves it in BookFeature struct
 extractFeaturesFromText :: FilePath -> T.Text -> BookFeatures
 extractFeaturesFromText path text =
   let
     sentences = getSentences text
-    sentenceCount = max 1 (length sentences)
-
-    -- calling function words on sentences via functor 
-    -- to get list of lift of words and then concatenating them
-    words' = T.words <$> sentences 
-    totalWords = concat words'
-    totalWordCount = max 1 (length totalWords)
-
-    -- Berechnung der einzelnen Metriken
-    avgSLen = fromIntegral (sum $ length <$> words') / fromIntegral sentenceCount
-    avgCommas = fromIntegral (sum $ T.count (T.pack ",") <$> sentences) / fromIntegral sentenceCount
-    -- TODO: Set. not ideal as it is O(log n)
-    uniqueWords = Set.fromList totalWords
-    ratio = fromIntegral (Set.size uniqueWords) / fromIntegral totalWordCount
-    avgWLen = fromIntegral (sum $ T.length <$> totalWords) / fromIntegral totalWordCount
-
-  in BookFeatures path avgSLen avgCommas ratio avgWLen
+    totalWords = concatMap T.words sentences 
+  in
+    BookFeatures
+      path
+      (calculateAvgSentenceLength sentences)
+      (averageOf (fromIntegral . T.count (T.pack ",")) sentences) -- TODO: calculateAvgCommas func
+      (calculateUniqueWordRatio totalWords)
+      (averageOf (fromIntegral . T.length) totalWords) -- TODO: calculateAvgWorldLength func
 
 calculateCategoryFeatures :: [BookFeatures] -> String -> BookFeatures
-calculateCategoryFeatures features categoryName = 
-  let
-    n = fromIntegral $ max 1 (length features)
-    sumAvgSentenceLength = sum $ avgSentenceLength <$> features
-    sumAvgCommas = sum $ avgCommasPerSentence <$> features
-    sumRatio = sum $ uniqueWordRatio <$> features
-    sumAvgWordLength = sum $ avgWordLength <$> features
-  in BookFeatures
-       categoryName
-       (sumAvgSentenceLength / n)
-       (sumAvgCommas / n)
-       (sumRatio / n)
-       (sumAvgWordLength / n)
+calculateCategoryFeatures features categoryName =
+  BookFeatures
+    categoryName
+    (averageOf avgSentenceLength features) -- gets list of avg sentence lengths, then takes avg func
+    (averageOf avgCommasPerSentence features) -- similarly
+    (averageOf uniqueWordRatio features)
+    (averageOf avgWordLength features)
 
