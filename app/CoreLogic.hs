@@ -37,8 +37,8 @@ extractFeaturesFromText path text =
 
   in BookFeatures path avgSLen avgCommas ratio avgWLen
 
-calculateCategoryFeatures :: [BookFeatures] -> BookFeatures
-calculateCategoryFeatures features = 
+calculateCategoryFeatures :: [BookFeatures] -> String -> BookFeatures
+calculateCategoryFeatures features categoryName = 
   let
     n = fromIntegral $ max 1 (length features)
 
@@ -47,7 +47,7 @@ calculateCategoryFeatures features =
     avg f = sumBy f / n
   in
     BookFeatures
-      "AVERAGE"
+      categoryName
       (avg avgSentenceLength)
       (avg avgCommasPerSentence)
       (avg uniqueWordRatio)
