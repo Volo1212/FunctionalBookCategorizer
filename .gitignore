@@ -4,8 +4,6 @@
 // ignoring macos files
 *.DS_Store
 
-// ignoring cabal project 
-*.cabal
 // ignoring generated LICENSE file
 LICENSE
 
