@@ -38,7 +38,7 @@ processDir dir = do
     -- "monadic" for (like map)
     forM files $ \file -> do 
         let fullPath = dir </> file
-        putStrLn $ "Verarbeite: " ++ fullPath
+        -- putStrLn $ "Verarbeite: " ++ fullPath
         content <- TIO.readFile fullPath
 
         -- calling pure function
@@ -51,15 +51,18 @@ main = do
     let childrenFP = "books/children"
     let adultsFP = "books/adults"
     -- read in all children/ books -> IO 
-    childrenBooks <- processDir (childrenFP)
+    childrenFeatures <- processDir (childrenFP)
     -- read in all adult/ books -> IO
-    adultBooks <- processDir (adultsFP)
+    adultFeatures <- processDir (adultsFP)
     -- calculate thresholds by calculating avg of childrens and adults first
-    let avgChildren = calculateCategoryFeatures childrenBooks childrenFP
+    let avgChildren = calculateCategoryFeatures childrenFeatures childrenFP
     printFeatures avgChildren
 
-    let avgAdults = calculateCategoryFeatures adultBooks adultsFP
+    let avgAdults = calculateCategoryFeatures adultFeatures adultsFP
     printFeatures avgAdults
+
+    let thresholds = calculateThresholds childrenFeatures adultFeatures
+    print thresholds
     -- read in test/ books and categorize them 
 
     putStrLn ("Completed")

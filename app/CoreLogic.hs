@@ -1,6 +1,7 @@
 module CoreLogic (
   extractFeaturesFromText,
-  calculateCategoryFeatures
+  calculateCategoryFeatures,
+  calculateThresholds
 ) where
 
 import qualified Data.Text as T
@@ -72,3 +73,14 @@ calculateCategoryFeatures features categoryName =
     (averageOf uniqueWordRatio features)
     (averageOf avgWordLength features)
 
+calculateThresholds :: [BookFeatures] -> [BookFeatures] -> Thresholds
+calculateThresholds childrenFeatures adultFeatures =
+  let
+    avgChild = calculateCategoryFeatures childrenFeatures "children"
+    avgAdult = calculateCategoryFeatures adultFeatures "adults"
+    mid a b = (a + b) / 2
+  in Thresholds
+       (mid (avgSentenceLength avgChild) (avgSentenceLength avgAdult))
+       (mid (avgCommasPerSentence avgChild) (avgCommasPerSentence avgAdult))
+       (mid (uniqueWordRatio avgChild) (uniqueWordRatio avgAdult))
+       (mid (avgWordLength avgChild) (avgWordLength avgAdult))
