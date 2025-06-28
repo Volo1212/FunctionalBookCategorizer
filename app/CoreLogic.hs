@@ -61,7 +61,7 @@ extractFeaturesFromText path text =
       path
       (calculateAvgSentenceLength sentences)
       (averageOf (fromIntegral . T.count (T.pack ",")) sentences) -- TODO: calculateAvgCommas func
-      (calculateUniqueWordRatio totalWords)
+      0
       (averageOf (fromIntegral . T.length) totalWords) -- TODO: calculateAvgWorldLength func
 
 calculateCategoryFeatures :: [BookFeatures] -> String -> BookFeatures

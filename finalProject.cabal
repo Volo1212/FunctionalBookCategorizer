@@ -78,7 +78,8 @@ executable finalProject
       text,
       containers,
       filepath,
-      directory
+      directory,
+      async
   default-language: Haskell2010
 
 test-suite finalProject-tests

@@ -7,18 +7,19 @@ import Control.Monad (forM)
 import Text.Printf (printf)
 import System.CPUTime
 import Text.Printf
+import Control.Concurrent.Async (mapConcurrently)
 
 import Types
 import CoreLogic
 
--- timeSth :: String -> IO a -> IO a 
--- timeSth label action = do
---     start <- getCPUTime
---     result <- action
---     end <- getCPUTime
---     let diff = fromIntegral (end - start) / (10^12)
---     printf "%s: %.3f sec\n" label (diff :: Double)
---     return result
+timeSth :: String -> IO a -> IO a 
+timeSth label action = do
+    start <- getCPUTime
+    result <- action
+    end <- getCPUTime
+    let diff = fromIntegral (end - start) / (10^12)
+    printf "%s: %.3f sec\n" label (diff :: Double)
+    return result
 
 printFeatures :: BookFeatures -> IO ()
 printFeatures (BookFeatures fp slen commas uniq wl) = do
@@ -31,23 +32,17 @@ printFeatures (BookFeatures fp slen commas uniq wl) = do
 -- IO monad function which takes dir path and recursively calls FeatureExtractor for every book
 -- returns IO wrapper of BookFeatues (IO [BookFeatueres])
 processDir :: FilePath -> IO [BookFeatures]
-processDir dir = do 
-    -- read all file names 
-    files <- listDirectory (dir)
-    
-    -- "monadic" for (like map)
-    forM files $ \file -> do 
-        let fullPath = dir </> file
-        -- putStrLn $ "Verarbeite: " ++ fullPath
-        content <- TIO.readFile fullPath
-
-        -- calling pure function
-        return $ extractFeaturesFromText fullPath content
-
+processDir dir = do
+  files <- listDirectory dir
+  mapConcurrently (\file -> do
+    let fullPath = dir </> file
+    content <- TIO.readFile fullPath
+    return $ extractFeaturesFromText fullPath content
+    ) files
 
 
 main :: IO ()
-main = do
+main = timeSth "Gesamtlaufzeit" $ do
     let childrenFP = "books/children"
     let adultsFP = "books/adults"
     -- read in all children/ books -> IO 
