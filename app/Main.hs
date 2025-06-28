@@ -5,9 +5,20 @@ import System.FilePath ((</>))
 import qualified Data.Text.IO as TIO
 import Control.Monad (forM)
 import Text.Printf (printf)
+import System.CPUTime
+import Text.Printf
 
 import Types
 import CoreLogic
+
+-- timeSth :: String -> IO a -> IO a 
+-- timeSth label action = do
+--     start <- getCPUTime
+--     result <- action
+--     end <- getCPUTime
+--     let diff = fromIntegral (end - start) / (10^12)
+--     printf "%s: %.3f sec\n" label (diff :: Double)
+--     return result
 
 printFeatures :: BookFeatures -> IO ()
 printFeatures (BookFeatures fp slen commas uniq wl) = do
@@ -45,7 +56,7 @@ main = do
     adultBooks <- processDir (adultsFP)
     -- calculate thresholds by calculating avg of childrens and adults first
     let avgChildren = calculateCategoryFeatures childrenBooks childrenFP
-    printFeatures avgChildren 
+    printFeatures avgChildren
 
     let avgAdults = calculateCategoryFeatures adultBooks adultsFP
     printFeatures avgAdults

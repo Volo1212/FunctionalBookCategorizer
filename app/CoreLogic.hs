@@ -9,17 +9,39 @@ import Data.List (foldl')
 
 import Types 
 
--- isolating functions into pure small blocks -> has to be CONTINUED
-getNonEmptySentences :: T.Text -> [T.Text]
-getNonEmptySentences text = filter (not . T.null) . T.splitOn (T.pack ".") . T.toLower $ text
+-- own util implementation of avg 
+-- which ensures that if count == 0 there is no error by just taking count = 1
+-- could be replaced by Maybe Monad with "Nothing" result if count == 0
+myAvg :: [Double] -> Double
+myAvg xs = sum xs / fromIntegral (max 1 (length xs))
 
+-- IMPORTANT function which is basically used everywhere
+-- takes: Lambda f, and a list xs
+-- calculates: f mapped on xs, and then takes average of result
+-- NOTE: map f xs IS THE SAME as f <$> xs
+averageOf :: (a -> Double) -> [a] -> Double
+averageOf f xs = myAvg $ map f xs 
+
+-- filter criteria for getSentences (util)
+textNotNull :: T.Text -> Bool
+textNotNull = (not . T.null)
+
+-- getting all non-empty sentences from Text
+getSentences :: T.Text -> [T.Text]
+getSentences = filter textNotNull . T.splitOn (T.pack ".") . T.toLower 
+
+-- getting all words from sentence
+-- first: get sentences, then map a list of words on each sentence
+-- then: concatenate the list of list of words into one long list
+getWordsFromSentence :: T.Text -> [T.Text]
+getWordsFromSentence = concat . map T.words . getSentences
 
 -- pure function which extracts features from text
 -- saves it in BookFeature struct
 extractFeaturesFromText :: FilePath -> T.Text -> BookFeatures
 extractFeaturesFromText path text =
   let
-    sentences = getNonEmptySentences text
+    sentences = getSentences text
     sentenceCount = max 1 (length sentences)
 
     -- calling function words on sentences via functor 
@@ -31,6 +53,7 @@ extractFeaturesFromText path text =
     -- Berechnung der einzelnen Metriken
     avgSLen = fromIntegral (sum $ length <$> words') / fromIntegral sentenceCount
     avgCommas = fromIntegral (sum $ T.count (T.pack ",") <$> sentences) / fromIntegral sentenceCount
+    -- TODO: Set. not ideal as it is O(log n)
     uniqueWords = Set.fromList totalWords
     ratio = fromIntegral (Set.size uniqueWords) / fromIntegral totalWordCount
     avgWLen = fromIntegral (sum $ T.length <$> totalWords) / fromIntegral totalWordCount
@@ -41,14 +64,14 @@ calculateCategoryFeatures :: [BookFeatures] -> String -> BookFeatures
 calculateCategoryFeatures features categoryName = 
   let
     n = fromIntegral $ max 1 (length features)
+    sumAvgSentenceLength = sum $ avgSentenceLength <$> features
+    sumAvgCommas = sum $ avgCommasPerSentence <$> features
+    sumRatio = sum $ uniqueWordRatio <$> features
+    sumAvgWordLength = sum $ avgWordLength <$> features
+  in BookFeatures
+       categoryName
+       (sumAvgSentenceLength / n)
+       (sumAvgCommas / n)
+       (sumRatio / n)
+       (sumAvgWordLength / n)
 
-    sumBy f = sum (map f features)
-
-    avg f = sumBy f / n
-  in
-    BookFeatures
-      categoryName
-      (avg avgSentenceLength)
-      (avg avgCommasPerSentence)
-      (avg uniqueWordRatio)
-      (avg avgWordLength)
