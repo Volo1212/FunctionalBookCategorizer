@@ -1,12 +1,15 @@
 module CoreLogic (
+  getWordsFromSentences,
+  getSentences,
   extractFeaturesFromText,
   calculateCategoryFeatures,
-  calculateThresholds
+  calculateThresholds,
+  classifyBook
 ) where
 
 import qualified Data.Text as T
 import qualified Data.Set as Set
-import Data.List (foldl')
+--import Data.List (foldl')
 
 import Types 
 
@@ -34,8 +37,8 @@ getSentences = filter textNotNull . T.splitOn (T.pack ".") . T.toLower
 -- getting all words from sentence
 -- first: get sentences, then map a list of words on each sentence
 -- then: concatenate the list of list of words into one long list
-getWordsFromSentence :: T.Text -> [T.Text]
-getWordsFromSentence = concat . map T.words . getSentences
+getWordsFromSentences :: [T.Text] -> [T.Text]
+getWordsFromSentences sentences = concatMap T.words sentences
 
 -- TODO:
 -- getTotalWordCount = max 1 (length totalWords)
@@ -54,14 +57,14 @@ calculateUniqueWordRatio totalWords =
 extractFeaturesFromText :: FilePath -> T.Text -> BookFeatures
 extractFeaturesFromText path text =
   let
-    sentences = getSentences text
-    totalWords = concatMap T.words sentences 
+    sentences = getSentences text 
+    totalWords = getWordsFromSentences sentences
   in
     BookFeatures
       path
       (calculateAvgSentenceLength sentences)
       (averageOf (fromIntegral . T.count (T.pack ",")) sentences) -- TODO: calculateAvgCommas func
-      0
+      (calculateUniqueWordRatio totalWords)
       (averageOf (fromIntegral . T.length) totalWords) -- TODO: calculateAvgWorldLength func
 
 calculateCategoryFeatures :: [BookFeatures] -> String -> BookFeatures
@@ -84,3 +87,22 @@ calculateThresholds childrenFeatures adultFeatures =
        (mid (avgCommasPerSentence avgChild) (avgCommasPerSentence avgAdult))
        (mid (uniqueWordRatio avgChild) (uniqueWordRatio avgAdult))
        (mid (avgWordLength avgChild) (avgWordLength avgAdult))
+
+-- calculateScore = avgSentenceLength * w1 + avgCommasPerSentence * w2 + ...
+-- assessScore = (calculateScore > Threshhold??) AdultBook else ChildrensBook
+
+classifyBook :: Thresholds -> BookFeatures -> Classification
+classifyBook thresholds features = 
+  let
+    childScore :: Int
+    childScore = 0
+               + (if avgSentenceLength features < sentenceLengthThreshold thresholds then 1 else 0)
+               + (if avgCommasPerSentence features < commasThreshold thresholds then 1 else 0)
+               + (if uniqueWordRatio features < ratioThreshold thresholds then 1 else 0)
+               + (if avgWordLength features < wordLengthThreshold thresholds then 1 else 0)
+    
+    -- Einfache Logik: Wenn die Mehrheit der Kriterien für "Kind" spricht, ist es ein Kinderbuch.
+    -- Dies kann man viel komplexer machen!
+    in if childScore >= 3
+       then ChildrensBook
+       else AdultBook

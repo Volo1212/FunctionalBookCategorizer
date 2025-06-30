@@ -4,7 +4,7 @@ import System.Directory (listDirectory)
 import System.FilePath ((</>))
 import qualified Data.Text.IO as TIO
 import Control.Monad (forM)
-import Text.Printf (printf)
+-- import Text.Printf (printf)
 import System.CPUTime
 import Text.Printf
 import Control.Concurrent.Async (mapConcurrently)
@@ -37,9 +37,31 @@ processDir dir = do
   mapConcurrently (\file -> do
     let fullPath = dir </> file
     content <- TIO.readFile fullPath
+    putStrLn $ "Verarbeite " ++ fullPath
     return $ extractFeaturesFromText fullPath content
     ) files
 
+testChildrenAccuracy :: Thresholds -> IO ()
+testChildrenAccuracy thresholds = do
+  children <- processDir ("books/children")
+
+  let total = length children
+      correct = length $ filter (\bf -> classifyBook thresholds bf == ChildrensBook) children
+      percent = fromIntegral correct / fromIntegral total * 100
+
+  putStrLn $ "Kinderbücher korrekt klassifiziert: " ++ show correct ++ " / " ++ show total
+  printf "Trefferquote: %.2f%%\n" (percent :: Double)
+
+testAdultAccuracy :: Thresholds -> IO ()
+testAdultAccuracy thresholds = do
+  adults <- processDir ("books/adults")
+
+  let total = length adults
+      correct = length $ filter (\bf -> classifyBook thresholds bf == AdultBook) adults
+      percent = fromIntegral correct / fromIntegral total * 100
+
+  putStrLn $ "Erwachsenenbücher korrekt klassifiziert: " ++ show correct ++ " / " ++ show total
+  printf "Trefferquote: %.2f%%\n" (percent :: Double)
 
 main :: IO ()
 main = timeSth "Gesamtlaufzeit" $ do
@@ -59,6 +81,16 @@ main = timeSth "Gesamtlaufzeit" $ do
     let thresholds = calculateThresholds childrenFeatures adultFeatures
     print thresholds
     -- read in test/ books and categorize them 
+
+    -- testChildrenAccuracy thresholds
+    testAdultAccuracy thresholds
+
+    -- undefinedFeatures <- processDir "books/uncategorized"
+
+    -- forM undefinedFeatures $ \features -> do
+    --     printFeatures features
+    --     putStrLn $ "  Classification: " ++ show (classifyBook thresholds features)
+    --     putStrLn ""
 
     putStrLn ("Completed")
 
