@@ -26,6 +26,9 @@ data BookFeatures = BookFeatures
   } deriving (Show)
 
 -- calculated weights of gradient descent, starting with initial values
+-- bias: additional weight which doesnt correspond to a particular feature. 
+-- It is also trained and adds an additional "tendency" towards child or adult book
+-- Instead of f(x) = w1 * x + ...; -> f(x) = w1 * x + ... + BIAS;
 data Weights = Weights
   { wSentenceLength    :: !Double
   , wWordLength        :: !Double
