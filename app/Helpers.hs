@@ -4,6 +4,8 @@ import qualified Data.Text as T
 import qualified Data.List as L
 import qualified Data.Set  as Set
 
+import Types
+
 -- module to include all helper functions for the main logic
 -- so that our eyes wont turn to ash as we slowly dive into madness from Haskell anyway
 
