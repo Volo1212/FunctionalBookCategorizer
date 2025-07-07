@@ -50,12 +50,7 @@ calculateGlobalStats features =
     , sentLengthStdDevStats = calculateFeatureStats $ L.map sentenceLengthStdDev features
     , commasStats = calculateFeatureStats $ L.map avgCommasPerSentence features
     }
-
-normalizeValue :: Double -> FeatureStats -> Double
-normalizeValue val stats
-  | stdDev stats == 0 = 0.0
-  | otherwise = (val - mean stats) / stdDev stats
-
+    
 normalizeFeatures :: BookFeatures -> CategoryStats -> [Double]
 normalizeFeatures features stats =
   [ normalizeValue (avgSentenceLength features) (sentLengthStats stats)

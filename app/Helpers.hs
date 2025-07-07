@@ -78,7 +78,17 @@ calculateStdDev :: Double -> [Double] -> Double
 calculateStdDev meanVal xs
   | null xs = 0.0
   | otherwise = sqrt $ L.sum (L.map (\x -> (x - meanVal) ^ 2) xs) / fromIntegral (L.length xs)
+  
+-- mathemtical formula standardization of a value: 
+-- value minus mean of that value divided by standard deviation
+normalizeValue :: Double -> FeatureStats -> Double
+normalizeValue val stats
+  | stdDev stats == 0 = 0.0
+  | otherwise = (val - mean stats) / stdDev stats
 
--- z standardisation based on mathematic formula 
+-- used to convert linear sum of weighted features which could be astronomical, negative, etc...
+-- in a range between 0 and 1 to make it actually meaningful (a probability)
+-- e.g. z = -3.5, sigmoid(z) = 0.029
 sigmoid :: Double -> Double
 sigmoid z = 1.0 / (1.0 + exp (-z))
+
