@@ -1,64 +1,52 @@
 {-# LANGUAGE BangPatterns #-}
 
-module Types (
-  BookFeatures(..),
-  Thresholds(..),
-  Classification(..),
-  Weights(..),
-  FeatureStats(..),
-  CategoryStats(..),
-) where
+module Types
+  ( Classification(..)
+  , BookFeatures(..)
+  , Weights(..)
+  , FeatureStats(..)
+  , CategoryStats(..)
+  ) where
 
--- Merkmale, die aus einem einzigen Buch extrahiert werden
-data BookFeatures = BookFeatures {
-  filePath               :: !FilePath, 
-  avgSentenceLength      :: !Double,
-  avgCommasPerSentence   :: !Double,
-  uniqueWordRatio        :: !Double, 
-  avgWordLength          :: !Double,
-  fleschReadingEase      :: !Double,
-  totalLength            :: !Int
-} deriving (Show, Eq)
-
--- Die berechneten Schwellenwerte, die Kinder- von Erwachsenenbüchern trennen
-data Thresholds = Thresholds {
-  sentenceLengthThreshold :: Double,
-  commasThreshold         :: Double,
-  ratioThreshold          :: Double,
-  wordLengthThreshold     :: Double,
-  fleschThreshold         :: Double,
-  totalLengthThreshold    :: Double
-} deriving (Show)
-
--- Das Endergebnis der Klassifizierung
-data Classification = ChildrensBook | AdultBook | Uncertain
+-- end result 
+data Classification
+  = Children
+  | Adult
   deriving (Show, Eq)
 
--- Gewichte für die Merkmale, die in der Klassifizierung verwendet werden
-data Weights = Weights {
-  wSentenceLength     :: Double,
-  wCommasPerSentence  :: Double,
-  wUniqueWordRatio    :: Double,
-  wAvgWordLength      :: Double,
-  wFleschReadingEase  :: Double,
-  wTotalLength       :: Double
-} deriving (Show, Eq)
-
--- Statistische Merkmale, die für die Klassifizierung verwendet werden
--- Diese Struktur speichert den Mittelwert, die Varianz und die Standardabweichung
-data FeatureStats = FeatureStats
-  { mean :: Double
-  , variance :: Double
-  , stddev :: Double
+-- metrics for every book
+data BookFeatures = BookFeatures
+  { avgSentenceLength    :: !Double
+  , avgWordLength        :: !Double
+  , fleschReadingEase    :: !Double
+  , avgSyllablesPerWord  :: !Double
+  , uniqueWordRatio      :: !Double
+  , sentenceLengthStdDev :: !Double
+  , avgCommasPerSentence :: !Double
   } deriving (Show)
 
--- Statistiken für eine Kategorie (z.B. Kinder- oder Erwachsenenbücher)
+-- calculated weights of gradient descent, starting with initial values
+data Weights = Weights
+  { wSentenceLength    :: !Double
+  , wWordLength        :: !Double
+  , wFlesch            :: !Double
+  , wUniqueWordRatio   :: !Double
+  , wSentLengthStdDev  :: !Double
+  , wCommasPerSentence :: !Double
+  , bias               :: !Double
+  } deriving (Show)
+
+-- calculated for every single feature of every single book
+data FeatureStats = FeatureStats
+  { mean   :: !Double
+  , stdDev :: !Double
+  } deriving (Show)
+
 data CategoryStats = CategoryStats
-  { name :: String
-  , slenStats :: FeatureStats
-  , commaStats :: FeatureStats
-  , uniqRatioStats :: FeatureStats
-  , wordLenStats :: FeatureStats
-  , fleschStats :: FeatureStats
-  , lengthStats :: FeatureStats
+  { sentLengthStats      :: !FeatureStats
+  , wordLengthStats      :: !FeatureStats
+  , fleschStats          :: !FeatureStats
+  , uwrStats             :: !FeatureStats
+  , sentLengthStdDevStats:: !FeatureStats
+  , commasStats          :: !FeatureStats
   } deriving (Show)

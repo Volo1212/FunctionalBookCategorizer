@@ -1,119 +1,85 @@
-module Main where
+  module Main where
 
-import System.Directory (listDirectory)
-import System.FilePath ((</>))
-import qualified Data.Text.IO as TIO
-import System.CPUTime
-import Text.Printf
-import Control.Concurrent.Async (mapConcurrently)
+  import System.Directory (listDirectory)
+  import System.FilePath ((</>))
+  import qualified Data.Text.IO as TIO
+  import System.CPUTime
+  import Text.Printf
+  import Control.Concurrent.Async (mapConcurrently)
+  import qualified Data.Text as T
+  import Data.Text (Text)
+  import qualified Data.List as L
+  import Control.Monad (forM, when)
 
-import Types
-import CoreLogic 
+  import Types
+  import CoreLogic 
+  import Helpers
+  
+  loadBooksFromDir :: FilePath -> Classification -> IO [(Text, Classification)]
+  loadBooksFromDir dir classification = do
+    files <- listDirectory dir
+    let txtFiles = L.filter (L.isSuffixOf ".txt") files
+    forM txtFiles $ \file -> do
+      content <- TIO.readFile (dir </> file)
+      return (content, classification)
 
-timeSth :: String -> IO a -> IO a 
-timeSth label action = do
-    start <- getCPUTime
-    result <- action
-    end <- getCPUTime
-    let diff = fromIntegral (end - start) / (10^12)
-    printf "%s: %.3f sec\n" label (diff :: Double)
-    return result
+  main :: IO ()
+  main = do
+    let learningRate = 0.1
+    let lambda = 0.01
+    let epochs = 1000
+    let testSplitRatio = 0.2
 
-printFeatures :: BookFeatures -> IO ()
-printFeatures (BookFeatures fp slen commas uniq wl flesch totalLen) = do
-  putStrLn $ "File: " ++ fp
-  printf "  avgSentenceLength:     %.2f\n" slen
-  printf "  avgCommasPerSentence:  %.2f\n" commas
-  printf "  uniqueWordRatio:       %.3f\n" uniq
-  printf "  avgWordLength:         %.2f\n" wl
-  printf "  FleschReadingEase:     %.2f\n" flesch
-  printf "  totalLength:           %d\n" totalLen
-
-processDir :: FilePath -> IO [BookFeatures]
-processDir dir = do
-  files <- listDirectory dir
-  mapConcurrently (\file -> do
-    let fullPath = dir </> file
-    content <- TIO.readFile fullPath
-    return $ extractFeaturesFromText fullPath content
-    ) files
+    printf "Buchklassifizierungs-Modell v2\n"
+    printf "================================\n"
     
-calculateCategoryStats :: String -> [BookFeatures] -> CategoryStats
-calculateCategoryStats label bfs =
-  let slens   = map avgSentenceLength bfs
-      commas  = map avgCommasPerSentence bfs
-      ratios  = map uniqueWordRatio bfs
-      wordLen = map avgWordLength bfs
-      flesch  = map fleschReadingEase bfs
-      lengths = map (fromIntegral . totalLength) bfs
-  in CategoryStats label (calcStats slens) (calcStats commas) (calcStats ratios) (calcStats wordLen) (calcStats flesch) (calcStats lengths)
+    printf "1. Lade Bücher aus den Verzeichnissen...\n"
+    childrenBooks <- loadBooksFromDir "books/children" Children
+    adultBooks <- loadBooksFromDir "books/adults" Adult
+    let allBooks = childrenBooks ++ adultBooks
+    when (null allBooks) $ error "Keine Bücher gefunden. Stelle sicher, dass die Ordner books/children und books/adults existieren und .txt-Dateien enthalten."
+    printf "   -> %d Bücher insgesamt geladen.\n" (length allBooks)
 
-printCategoryStats :: CategoryStats -> IO ()
-printCategoryStats (CategoryStats label slen comma ratio wordLen flesch length) = do
-  putStrLn $ "\nStatistiken für Kategorie: " ++ label
-  putStrLn "---------------------------------------"
-  printStat "Satzlänge" slen
-  printStat "Kommas pro Satz" comma
-  printStat "Wortvielfalt (Unique Ratio)" ratio
-  printStat "Wortlänge" wordLen
-  printStat "Flesch Reading Ease" flesch
-  printStat "Buchlänge" length
-  putStrLn ""
-  where
-    printStat name (FeatureStats mean var stddev) =
-      printf "%-25s Mittelwert: %.3f  Varianz: %.3f  StdAbw: %.3f\n" name mean var stddev
+    printf "2. Extrahiere Features aus jedem Buch...\n"
+    let labeledFeatures = [(extractFeatures text, label) | (text, label) <- allBooks]
+    
+    printf "3. Berechne globale Statistiken für die symmetrische Normalisierung...\n"
+    let allFeatures = map fst labeledFeatures
+    let globalStats = calculateGlobalStats allFeatures
+    
+    printf "4. SKIPPING: Aufteilen der Daten in Trainings- und Test-Set...\n"
+    -- let splitIndex = floor $ fromIntegral (length labeledFeatures) * (1.0)
+    -- let (trainItems, testItems) = L.splitAt splitIndex labeledFeatures
+    let trainItems = labeledFeatures
 
--- GEÄNDERT: Die Auswertungsfunktion muss jetzt auch die globalen Stats bekommen
-evaluateAccuracy :: [BookFeatures] -> [BookFeatures] -> Weights -> CategoryStats -> CategoryStats -> CategoryStats -> IO Double
-evaluateAccuracy children adults weights overallStats childStats adultStats = do
-  let
-    correctChildren = length $ filter (\bf -> classifyCombined weights overallStats childStats adultStats bf == ChildrensBook) children
-    correctAdults   = length $ filter (\bf -> classifyCombined weights overallStats childStats adultStats bf == AdultBook) adults
-    totalChildren = length children
-    totalAdults = length adults
-    accChildren :: Double
-    accChildren = if totalChildren == 0 then 0 else fromIntegral correctChildren / fromIntegral totalChildren
-    accAdults :: Double
-    accAdults   = if totalAdults == 0 then 0 else fromIntegral correctAdults / fromIntegral totalAdults
-    overallAcc :: Double
-    overallAcc = fromIntegral (correctChildren + correctAdults) / fromIntegral (totalChildren + totalAdults)
+    let trainingData =
+          [ (normalizeFeatures features globalStats, if label == Adult then 1.0 else 0.0)
+          | (features, label) <- trainItems
+          ]
 
-  printf "Trefferquote Kinder:     %d / %d (%.2f%%)\n" correctChildren totalChildren (accChildren * 100)
-  printf "Trefferquote Erwachsene: %d / %d (%.2f%%)\n" correctAdults totalAdults (accAdults * 100)
-  printf "Gesamtgenauigkeit:     %.2f%%\n" (overallAcc * 100)
-  return overallAcc
+    printf "5. Trainiere das Modell mit %d Epochen (Trainingsdaten: %d)...\n" epochs (length trainingData) 
+    let initialWeights = Weights 0 0 0 0 0 0 0
+    let finalWeights = trainModel learningRate lambda epochs trainingData initialWeights
 
--- GEÄNDERT: Wrapper für das Training
-findBestWeightsGradient :: [BookFeatures] -> [BookFeatures] -> CategoryStats -> IO Weights
-findBestWeightsGradient children adults overallStats = do
-  putStrLn "\nStarte Training mit Gradientenabstieg (symmetrische Normalisierung)..."
-  let printProgress weights = printf "  -> Epoche... Aktuelle Gewichte: " >> print weights
-  timeSth "Training abgeschlossen in" $
-    trainWeightsWithGradientDescent children adults overallStats printProgress
+    printf "6. Training abgeschlossen. Finale Gewichte:\n"
+    printf "   -> wSentenceLength:    %+.4f\n" (wSentenceLength finalWeights)
+    printf "   -> wWordLength:        %+.4f\n" (wWordLength finalWeights)
+    printf "   -> wFlesch:            %+.4f\n" (wFlesch finalWeights)
+    printf "   -> wUniqueWordRatio:   %+.4f\n" (wUniqueWordRatio finalWeights)
+    printf "   -> wSentLengthStdDev:  %+.4f\n" (wSentLengthStdDev finalWeights)
+    printf "   -> wCommasPerSentence: %+.4f\n" (wCommasPerSentence finalWeights)
+    printf "   -> Bias:               %+.4f\n" (bias finalWeights)
 
--- Die Hauptfunktion, die alles steuert.
-main :: IO ()
-main = do
-  putStrLn "Lade und verarbeite Kinderbücher..."
-  children <- timeSth "Kinderbücher verarbeitet in" $ processDir "books/children"
-  putStrLn "\nLade und verarbeite Erwachsenenbücher..."
-  adults <- timeSth "Erwachsenenbücher verarbeitet in" $ processDir "books/adults"
+    printf "7. Evaluiere Modellgenauigkeit auf dem TRAININGS-Set (nicht empfohlen für echte Evaluation)...\n"
+    let correctPredictions =
+          length $
+          L.filter
+            (\(features, actualLabel) ->
+              let predictedLabel = classify finalWeights globalStats features
+              in predictedLabel == actualLabel)
+            trainItems
 
-  -- NEU: Berechne Statistiken für die einzelnen Kategorien UND für den gesamten Datensatz
-  let childStats = calculateCategoryStats "children" children
-      adultStats = calculateCategoryStats "adults" adults
-      overallStats = calculateCategoryStats "overall" (children ++ adults)
+    let accuracy = safeDiv (fromIntegral correctPredictions * 100) (length trainItems)
 
-  -- Finde die besten Gewichte mit unserer neuen, fairen Methode
-  bestWeights <- findBestWeightsGradient children adults overallStats
-
-  putStrLn "\nBeste gefundene Gewichte:"
-  print bestWeights
-
-  putStrLn "\nBewerte Genauigkeit mit den finalen Gewichten:"
-  _ <- evaluateAccuracy children adults bestWeights overallStats childStats adultStats
-
-  -- Gib die finalen Statistiken aus
-  printCategoryStats childStats
-  printCategoryStats adultStats
-  printCategoryStats overallStats
+    printf "   -> Genauigkeit: %.2f%%\n" accuracy
+    printf "================================\n"
