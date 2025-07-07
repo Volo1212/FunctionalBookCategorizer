@@ -7,6 +7,9 @@ import qualified Data.Set  as Set
 -- module to include all helper functions for the main logic
 -- so that our eyes wont turn to ash as we slowly dive into madness from Haskell anyway
 
+---------------------------
+-- TEXT BASED 
+---------------------------
 safeDiv :: Double -> Int -> Double
 safeDiv _ 0 = 0.0
 safeDiv n d = n / fromIntegral d
@@ -68,6 +71,9 @@ calculateAvgCommasPerSentence sentences =
   let totalCommas = fromIntegral $ L.sum $ L.map countCommas sentences
   in safeDiv totalCommas (L.length sentences)
 
+---------------------------
+-- STATISTICS ARE AWESOME BRO JUST SMILE PLEEEEEEASE
+---------------------------
 calculateMean :: [Double] -> Double
 calculateMean xs
   | null xs = 0.0
@@ -78,7 +84,7 @@ calculateStdDev :: Double -> [Double] -> Double
 calculateStdDev meanVal xs
   | null xs = 0.0
   | otherwise = sqrt $ L.sum (L.map (\x -> (x - meanVal) ^ 2) xs) / fromIntegral (L.length xs)
-  
+
 -- mathemtical formula standardization of a value: 
 -- value minus mean of that value divided by standard deviation
 normalizeValue :: Double -> FeatureStats -> Double
