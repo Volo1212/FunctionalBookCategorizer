@@ -63,11 +63,12 @@ printCategoryStats (CategoryStats label slen comma ratio wordLen flesch length) 
     printStat name (FeatureStats mean var stddev) =
       printf "%-25s Mittelwert: %.3f  Varianz: %.3f  StdAbw: %.3f\n" name mean var stddev
 
-evaluateAccuracy :: [BookFeatures] -> [BookFeatures] -> Weights -> CategoryStats -> CategoryStats -> IO Double
-evaluateAccuracy children adults weights childStats adultStats = do
+-- GEÄNDERT: Die Auswertungsfunktion muss jetzt auch die globalen Stats bekommen
+evaluateAccuracy :: [BookFeatures] -> [BookFeatures] -> Weights -> CategoryStats -> CategoryStats -> CategoryStats -> IO Double
+evaluateAccuracy children adults weights overallStats childStats adultStats = do
   let
-    correctChildren = length $ filter (\bf -> classifyCombined weights childStats adultStats bf == ChildrensBook) children
-    correctAdults   = length $ filter (\bf -> classifyCombined weights childStats adultStats bf == AdultBook) adults
+    correctChildren = length $ filter (\bf -> classifyCombined weights overallStats childStats adultStats bf == ChildrensBook) children
+    correctAdults   = length $ filter (\bf -> classifyCombined weights overallStats childStats adultStats bf == AdultBook) adults
     totalChildren = length children
     totalAdults = length adults
     accChildren :: Double
@@ -82,21 +83,13 @@ evaluateAccuracy children adults weights childStats adultStats = do
   printf "Gesamtgenauigkeit:     %.2f%%\n" (overallAcc * 100)
   return overallAcc
 
-
--- NEU: Wrapper für unsere Gradient-Descent-Trainingsfunktion
-findBestWeightsGradient :: [BookFeatures] -> [BookFeatures] -> CategoryStats -> CategoryStats -> IO Weights
-findBestWeightsGradient children adults childStats adultStats = do
-  putStrLn "\nStarte Training mit Gradientenabstieg..."
-
-  -- Eine kleine Funktion, die wir an das Training übergeben, um den Fortschritt zu sehen
-  let printProgress weights = do
-        printf "  -> Aktuelle Gewichte: "
-        print weights
-
-  -- Rufe die neue Funktion aus CoreLogic auf
+-- GEÄNDERT: Wrapper für das Training
+findBestWeightsGradient :: [BookFeatures] -> [BookFeatures] -> CategoryStats -> IO Weights
+findBestWeightsGradient children adults overallStats = do
+  putStrLn "\nStarte Training mit Gradientenabstieg (symmetrische Normalisierung)..."
+  let printProgress weights = printf "  -> Epoche... Aktuelle Gewichte: " >> print weights
   timeSth "Training abgeschlossen in" $
-    trainWeightsWithGradientDescent children adults childStats adultStats printProgress
-
+    trainWeightsWithGradientDescent children adults overallStats printProgress
 
 -- Die Hauptfunktion, die alles steuert.
 main :: IO ()
@@ -106,18 +99,21 @@ main = do
   putStrLn "\nLade und verarbeite Erwachsenenbücher..."
   adults <- timeSth "Erwachsenenbücher verarbeitet in" $ processDir "books/adults"
 
+  -- NEU: Berechne Statistiken für die einzelnen Kategorien UND für den gesamten Datensatz
   let childStats = calculateCategoryStats "children" children
       adultStats = calculateCategoryStats "adults" adults
+      overallStats = calculateCategoryStats "overall" (children ++ adults)
 
-  -- Finde die besten Gewichte mit unserer neuen, schnellen Methode
-  bestWeights <- findBestWeightsGradient children adults childStats adultStats
+  -- Finde die besten Gewichte mit unserer neuen, fairen Methode
+  bestWeights <- findBestWeightsGradient children adults overallStats
 
   putStrLn "\nBeste gefundene Gewichte:"
   print bestWeights
 
   putStrLn "\nBewerte Genauigkeit mit den finalen Gewichten:"
-  _ <- evaluateAccuracy children adults bestWeights childStats adultStats
+  _ <- evaluateAccuracy children adults bestWeights overallStats childStats adultStats
 
   -- Gib die finalen Statistiken aus
   printCategoryStats childStats
   printCategoryStats adultStats
+  printCategoryStats overallStats

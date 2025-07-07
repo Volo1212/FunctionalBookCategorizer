@@ -24,7 +24,7 @@ import qualified Data.Set as Set
 import Data.Char (toLower)
 import Data.List (group, foldl')
 import qualified Data.Vector as V
-
+import Text.Printf
 import Types
 
 -- #############################################################################
@@ -180,27 +180,39 @@ classifyByDistance childStats adultStats book =
 toStatsList :: CategoryStats -> [FeatureStats]
 toStatsList cat = [slenStats cat, commaStats cat, uniqRatioStats cat, wordLenStats cat, fleschStats cat, lengthStats cat]
 
-classifyCombined :: Weights -> CategoryStats -> CategoryStats -> BookFeatures -> Classification
-classifyCombined weights childStats adultStats book =
-  let
-    toStatsList cat = [slenStats cat, commaStats cat, uniqRatioStats cat, wordLenStats cat, fleschStats cat, lengthStats cat]
-    normalized = normalizeFeatures childStats book
-    wList = weightsToList weights -- Verwendung der neuen Hilfsfunktion
-    weightedFeatures = zipWith (*) normalized wList
-    normalizeMeanPair childStat adultStat = zNormalize childStat (mean adultStat)
-    childCentroid = replicate 6 0.0
-    adultCentroid = zipWith (*) 
-                      (zipWith normalizeMeanPair (toStatsList childStats) (toStatsList adultStats))
-                      wList
-    euclideanDistance xs ys = sqrt . sum $ zipWith (\x y -> (x - y)^2) xs ys
-    distToChild = euclideanDistance weightedFeatures childCentroid
-    distToAdult = euclideanDistance weightedFeatures adultCentroid
-  in if distToChild < distToAdult then ChildrensBook else AdultBook
-
 -- #############################################################################
 -- NEUE FUNKTIONEN FÜR DEN GRADIENTENABSTIEG
 -- #############################################################################
 
+-- GEÄNDERT: Diese Funktion muss jetzt auch mit der symmetrischen Logik arbeiten.
+-- Sie braucht die globalen Statistiken, um die Features des neuen Buchs korrekt zu normalisieren.
+classifyCombined :: Weights -> CategoryStats -> CategoryStats -> CategoryStats -> BookFeatures -> Classification
+classifyCombined weights overallStats childStats adultStats book =
+  let
+    -- 1. Normalisiere das neue Buch mit den globalen Statistiken
+    normalizedBookFeatures = normalizeFeatures overallStats book
+    wList = weightsToList weights
+
+    -- 2. Berechne die Zentren für Kinder und Erwachsene, ebenfalls mit globalen Statistiken
+    -- Wir brauchen die Mittelwerte der unnormalisierten Features jeder Kategorie
+    getMeans catStats = [mean (slenStats catStats), mean (commaStats catStats), mean (uniqRatioStats catStats), mean (wordLenStats catStats), mean (fleschStats catStats), mean (lengthStats catStats)]
+    
+    -- Normalisiere die Mittelwerte, um die Zentren zu bekommen
+    childCentroid = normalizeFeatures overallStats (BookFeatures "" (head (getMeans childStats)) (getMeans childStats !! 1) (getMeans childStats !! 2) (getMeans childStats !! 3) (getMeans childStats !! 4) 0)
+    adultCentroid = normalizeFeatures overallStats (BookFeatures "" (head (getMeans adultStats)) (getMeans adultStats !! 1) (getMeans adultStats !! 2) (getMeans adultStats !! 3) (getMeans adultStats !! 4) 0)
+
+    -- 3. Berechne die gewichtete Distanz zu beiden Zentren
+    weightedFeatures = zipWith (*) wList normalizedBookFeatures
+    weightedChildCentroid = zipWith (*) wList childCentroid
+    weightedAdultCentroid = zipWith (*) wList adultCentroid
+
+    distSq xs ys = sum $ zipWith (\x y -> (x - y)^2) xs ys
+    distToChild = distSq weightedFeatures weightedChildCentroid
+    distToAdult = distSq weightedFeatures weightedAdultCentroid
+  in
+    if distToChild < distToAdult then ChildrensBook else AdultBook
+
+-- ... (Deine anderen Helfer wie weightsToList, addVectors etc. bleiben)
 -- Hilfsfunktionen zur Vektorrechnung
 addVectors :: [Double] -> [Double] -> [Double]
 addVectors = zipWith (+)
@@ -216,106 +228,97 @@ listToWeights :: [Double] -> Weights
 listToWeights [w1, w2, w3, w4, w5, w6] = Weights w1 w2 w3 w4 w5 w6
 listToWeights _ = error "Falsche Anzahl an Gewichten in der Liste!"
 
--- Berechnet den "Score" für ein Buch.
--- Positiv = tendiert zu Adult, Negativ = tendiert zu Child.
--- Wir verwenden die quadrierten Distanzen, um die Wurzel zu vermeiden. Das ist einfacher und schneller.
-calculatePredictionScore :: [Double] -> [Double] -> [Double] -> Double
-calculatePredictionScore weights normalizedFeatures adultCentroid =
+-- #############################################################################
+-- GRADIENTENABSTIEG MIT SYMMETRISCHER NORMALISIERUNG
+-- #############################################################################
+
+-- NEU: Eine Hilfsfunktion, um den Mittelwert-Vektor aus einer Liste von Vektoren zu berechnen
+calculateMeanVector :: [[Double]] -> [Double]
+calculateMeanVector vectors =
+    let numVectors = fromIntegral $ max 1 (length vectors)
+        initialSum = replicate (length (head vectors)) 0.0
+        totalSum = foldl' addVectors initialSum vectors
+    in scaleVector (1.0 / numVectors) totalSum
+
+-- GEÄNDERT: Nimmt jetzt beide Zentren entgegen
+calculatePredictionScore :: [Double] -> [Double] -> [Double] -> [Double] -> Double
+calculatePredictionScore weights normalizedFeatures childCentroid adultCentroid =
   let weightedFeatures = zipWith (*) weights normalizedFeatures
+      weightedChildCentroid = zipWith (*) weights childCentroid
       weightedAdultCentroid = zipWith (*) weights adultCentroid
-
-      -- Quadrierte Euklidische Distanz (ohne die Wurzel)
       distSq xs ys = sum $ zipWith (\x y -> (x - y)^2) xs ys
-
-      distToChildSq = distSq weightedFeatures (replicate 6 0.0)
+      distToChildSq = distSq weightedFeatures weightedChildCentroid
       distToAdultSq = distSq weightedFeatures weightedAdultCentroid
   in
-      -- Score: Distanz zum Kind - Distanz zum Erwachsenen
-      -- Ein negativer Score bedeutet, es ist näher am Kind.
       distToChildSq - distToAdultSq
 
--- Berechnet den Gradienten für EIN EINZIGES Buch.
--- Der Gradient ist der Vektor, der in die Richtung des steilsten Fehleranstiegs zeigt.
-calculateGradientForBook :: [Double] -> [Double] -> [Double] -> Double -> [Double]
-calculateGradientForBook weights features adultCentroid label =
-  let score = calculatePredictionScore weights features adultCentroid
-      -- Hinge Loss: Wir bestrafen nur, wenn label * score < 1
-      -- (falsch klassifiziert oder zu nah an der Grenze)
-      -- Label: -1 für Kind, +1 für Erwachsener
+-- GEÄNDERT: Nimmt jetzt beide Zentren entgegen, die Formel für die Ableitung ändert sich!
+calculateGradientForBook :: [Double] -> [Double] -> [Double] -> [Double] -> Double -> [Double]
+calculateGradientForBook weights features childCentroid adultCentroid label =
+  let score = calculatePredictionScore weights features childCentroid adultCentroid
       lossCondition = label * score < 1.0
   in
       if lossCondition
       then
-          -- Ableitung des Scores nach den Gewichten, skaliert mit dem Label.
-          -- Dies ist der "magische" Teil, aber er ergibt sich direkt aus der Formel für den Score.
-          let derivative = zipWith (\f c -> 2 * (f - c) * f) features adultCentroid
+          let -- Neue Formel für die Ableitung, da kein Zentrum mehr Null ist.
+              derivative = zipWith3 (\f cc ac -> 2 * (f - ac)^2 - 2 * (f - cc)^2) features childCentroid adultCentroid
           in scaleVector (-label) derivative
       else
-          -- Wenn die Klassifizierung korrekt und sicher ist, ist der Gradient 0.
           replicate 6 0.0
 
--- Führt EINEN Schritt des Gradientenabstiegs für den gesamten Datensatz aus.
-gradientDescentStep :: [([Double], Double)] -> [Double] -> [Double] -> Double -> [Double]
-gradientDescentStep labeledData currentWeights adultCentroid learningRate =
+-- GEÄNDERT: Nimmt beide Zentren entgegen
+gradientDescentStep :: [([Double], Double)] -> [Double] -> [Double] -> [Double] -> Double -> [Double]
+gradientDescentStep labeledData currentWeights childCentroid adultCentroid learningRate =
   let
-      -- NEU: Regularisierungs-Parameter (Lambda). Das sind die "Zügel".
-      lambda = 0.01 -- Ein guter Startwert.
-
-      gradients = map (\(features, label) -> calculateGradientForBook currentWeights features adultCentroid label) labeledData
-      
+      lambda = 0.01
+      gradients = map (\(features, label) -> calculateGradientForBook currentWeights features childCentroid adultCentroid label) labeledData
       numDataPoints = fromIntegral $ max 1 (length labeledData)
       totalGradient = foldl' addVectors (replicate 6 0.0) gradients
       avgGradient = scaleVector (1.0 / numDataPoints) totalGradient
-
-      -- HIER IST DIE NEUE ZEILE: Füge die "Strafe" für große Gewichte hinzu.
       regularizationTerm = scaleVector lambda currentWeights
       gradientWithReg = addVectors avgGradient regularizationTerm
-
-      -- Aktualisiere die Gewichte mit dem neuen, regulierten Gradienten.
       updatedWeights = zipWith (-) currentWeights (scaleVector learningRate gradientWithReg)
   in
       updatedWeights
 
--- Die Haupt-Trainingsfunktion, die von Main aufgerufen wird.
+-- GEÄNDERT: Die Haupt-Trainingsfunktion
 trainWeightsWithGradientDescent ::
-  [BookFeatures] -> -- Kinderbücher
-  [BookFeatures] -> -- Erwachsenenbücher
-  CategoryStats ->  -- Kinder-Statistiken
-  CategoryStats ->  -- Erwachsenen-Statistiken
-  (Weights -> IO ()) -> -- Funktion zur Ausgabe des Fortschritts
-  IO Weights        -- Das Endergebnis
-trainWeightsWithGradientDescent children adults childStats adultStats printProgress = do
-  let -- Trainings-Parameter
-      learningRate = 0.007
-      epochs = 300 -- Anzahl der Durchläufe über den gesamten Datensatz
-      initialWeights = replicate 6 1.0 -- Startpunkt: alle Gewichte sind 1.0
+  [BookFeatures] ->      -- Kinderbücher
+  [BookFeatures] ->      -- Erwachsenenbücher
+  CategoryStats ->       -- NEU: Globale Statistiken für die Normalisierung
+  (Weights -> IO ()) ->  -- Funktion zur Ausgabe des Fortschritts
+  IO Weights             -- Das Endergebnis
+trainWeightsWithGradientDescent children adults overallStats printProgress = do
+  let
+      learningRate = 0.001 -- Fangen wir mit einer kleineren Lernrate an, da die Dynamik anders ist
+      epochs = 300
+      initialWeights = replicate 6 1.0
 
-      -- Bereite die Trainingsdaten vor: Normalisierte Vektoren mit Labels
-      normalizeAndLabel bookfs label = map (\bf -> (normalizeFeatures childStats bf, label)) bookfs
-      labeledChildren = normalizeAndLabel children (-1.0)
-      labeledAdults = normalizeAndLabel adults 1.0
+      -- 1. Normalisiere ALLE Daten mit den globalen Statistiken
+      normalizedChildren = map (normalizeFeatures overallStats) children
+      normalizedAdults = map (normalizeFeatures overallStats) adults
+
+      -- 2. Berechne die Zentren der normalisierten Daten
+      childCentroid = calculateMeanVector normalizedChildren
+      adultCentroid = calculateMeanVector normalizedAdults
+      
+      -- 3. Erstelle die gelabelten Daten für das Training
+      labeledChildren = zip normalizedChildren (repeat (-1.0))
+      labeledAdults = zip normalizedAdults (repeat 1.0)
       allLabeledData = labeledChildren ++ labeledAdults
 
-      -- Der normalisierte Centroid der Erwachsenenbücher (Kinder-Centroid ist der Nullvektor)
-      adultCentroid = zipWith (\sChild sAdult -> zNormalize sChild (mean sAdult))
-                              (toStatsList childStats)
-                              (toStatsList adultStats)
+  putStrLn "\nSymmetrische Zentren berechnet:"
+  printf "  Kinder-Zentrum (normalisiert): " >> print childCentroid
+  printf "  Erwachsenen-Zentrum (normalisiert): " >> print adultCentroid
 
-  -- Rekursive Schleife für das Training
   let trainingLoop epoch currentWeights
-        | epoch > epochs = return currentWeights -- Training beendet
+        | epoch > epochs = return currentWeights
         | otherwise = do
-            -- Führe einen Trainingsschritt aus
-            let newWeights = gradientDescentStep allLabeledData currentWeights adultCentroid learningRate
-            
-            -- Gib den Fortschritt aus (alle 20 Epochen)
+            let newWeights = gradientDescentStep allLabeledData currentWeights childCentroid adultCentroid learningRate
             if epoch `mod` 20 == 0
             then printProgress (listToWeights newWeights)
             else return ()
-
-            -- Rufe die Schleife für die nächste Epoche auf
             trainingLoop (epoch + 1) newWeights
 
-  -- Starte die Schleife und konvertiere das Ergebnis zurück in den Weights-Typ
   finalWeightsList <- trainingLoop 1 initialWeights
   return $ listToWeights finalWeightsList
