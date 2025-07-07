@@ -56,7 +56,8 @@ common warnings
 library
   exposed-modules:
       CoreLogic,
-      Types
+      Types,
+      Helpers
   hs-source-dirs: app
   build-depends:
       base >=4.18.2.0 && <4.19,
@@ -73,6 +74,7 @@ executable finalProject
   hs-source-dirs:   app
   other-modules:    CoreLogic
                     Types
+                    Helpers
   build-depends:
       base >=4.18.2.0 && <4.19,
       finalProject,     
@@ -84,14 +86,15 @@ executable finalProject
       vector
   default-language: Haskell2010
 
--- test-suite finalProject-tests
---   type:                exitcode-stdio-1.0
---   hs-source-dirs:      test
---   main-is:             Spec.hs
---   build-depends:
---       base,
---       finalProject,
---       HUnit,
---       text,
---       vector 
---   default-language:    Haskell2010
+test-suite finalProject-tests
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:
+      base,
+      finalProject,
+      HUnit,
+      QuickCheck,
+      text,
+      vector 
+  default-language:    Haskell2010
