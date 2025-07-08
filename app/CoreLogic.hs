@@ -1,108 +1,152 @@
-module CoreLogic (
-  getWordsFromSentences,
-  getSentences,
-  extractFeaturesFromText,
-  calculateCategoryFeatures,
-  calculateThresholds,
-  classifyBook
-) where
+module CoreLogic where
 
+import qualified Data.Char as C
+import qualified Data.List as L
+import qualified Data.Set  as Set
 import qualified Data.Text as T
-import qualified Data.Set as Set
---import Data.List (foldl')
+import           Types
+import           Helpers
 
-import Types 
+-- TODO: refactor this into smaller chunks
+-- the function is not complicated its jut a little bit big
+-- basically it calculates all metrics for every book 
+-- for some of them that means we need std deviation and mean
+extractFeatures :: T.Text -> BookFeatures
+extractFeatures text =
+  let sentences = getSentences text
+      wordLists = getWords sentences
 
--- own util implementation of avg 
--- which ensures that if count == 0 there is no error by just taking count = 1
--- could be replaced by Maybe Monad with "Nothing" result if count == 0
-myAvg :: [Double] -> Double
-myAvg xs = sum xs / fromIntegral (max 1 (length xs))
+      sentenceLengths = calculateSentenceLengths wordLists
+      sentenceLengthsD = map fromIntegral sentenceLengths
 
--- IMPORTANT function which is basically used everywhere
--- takes: Lambda f, and a list xs
--- calculates: f mapped on xs, and then takes average of result
--- NOTE: map f xs IS THE SAME as f <$> xs
-averageOf :: (a -> Double) -> [a] -> Double
-averageOf f xs = myAvg $ map f xs 
+      avgSentLen = calculateAvgSentenceLength sentenceLengths
+      sentLenMean = calculateMean sentenceLengthsD
+      sentLenStdDev = calculateStdDev sentLenMean sentenceLengthsD
+      wordLengths = calculateWordLengths wordLists
+      avgWordLen = calculateAvgWordLength wordLengths
+      syllablesPerWord = calculateSyllablesPerWord wordLists
+      avgSyllables = calculateAvgSyllablesPerWord syllablesPerWord
 
--- filter criteria for getSentences (util)
-textNotNull :: T.Text -> Bool
-textNotNull = (not . T.null)
+      fleschScore = calculateFleschScore avgSentLen avgSyllables
+      uwr = calculateUniqueWordRatio wordLists
+      avgCommas = calculateAvgCommasPerSentence sentences
+  in BookFeatures
+       { avgSentenceLength = avgSentLen
+       , avgWordLength = avgWordLen
+       , fleschReadingEase = fleschScore
+       , avgSyllablesPerWord = avgSyllables
+       , uniqueWordRatio = uwr
+       , sentenceLengthStdDev = sentLenStdDev
+       , avgCommasPerSentence = avgCommas
+       }
 
--- getting all non-empty sentences from Text
-getSentences :: T.Text -> [T.Text]
-getSentences = filter textNotNull . T.splitOn (T.pack ".") . T.toLower 
+calculateFeatureStats :: [Double] -> FeatureStats
+calculateFeatureStats xs =
+  let m = calculateMean xs
+      s = calculateStdDev m xs
+  in FeatureStats {mean = m, stdDev = s}
 
--- getting all words from sentence
--- first: get sentences, then map a list of words on each sentence
--- then: concatenate the list of list of words into one long list
-getWordsFromSentences :: [T.Text] -> [T.Text]
-getWordsFromSentences sentences = concatMap T.words sentences
+-- for a category of books, or for all books depending on usage
+calculateGlobalStats :: [BookFeatures] -> CategoryStats
+calculateGlobalStats features =
+  CategoryStats
+    { sentLengthStats = calculateFeatureStats $ L.map avgSentenceLength features
+    , wordLengthStats = calculateFeatureStats $ L.map avgWordLength features
+    , fleschStats = calculateFeatureStats $ L.map fleschReadingEase features
+    , uwrStats = calculateFeatureStats $ L.map uniqueWordRatio features
+    , sentLengthStdDevStats = calculateFeatureStats $ L.map sentenceLengthStdDev features
+    , commasStats = calculateFeatureStats $ L.map avgCommasPerSentence features
+    }
 
--- TODO:
--- getTotalWordCount = max 1 (length totalWords)
+normalizeFeatures :: BookFeatures -> CategoryStats -> [Double]
+normalizeFeatures features stats =
+  [ normalizeValue (avgSentenceLength features) (sentLengthStats stats)
+  , normalizeValue (avgWordLength features) (wordLengthStats stats)
+  , normalizeValue (fleschReadingEase features) (fleschStats stats)
+  , normalizeValue (uniqueWordRatio features) (uwrStats stats)
+  , normalizeValue (sentenceLengthStdDev features) (sentLengthStdDevStats stats)
+  , normalizeValue (avgCommasPerSentence features) (commasStats stats)
+  ]
 
-calculateAvgSentenceLength :: [T.Text] -> Double
-calculateAvgSentenceLength sentences = averageOf (fromIntegral . length . T.words) sentences
+-- predict the probability of a book to be rather child or parent
+-- returns a val between 0 and 1, if its > 0.5 its an Adult else Children prediction
+-- this is NOT the function used to CLASSIFY, its used for TRAINING only 
+predict :: Weights -> [Double] -> Double
+predict weights features =
+  let z = (wSentenceLength weights * features !! 0) +
+          (wWordLength weights * features !! 1) +
+          (wFlesch weights * features !! 2) +
+          (wUniqueWordRatio weights * features !! 3) +
+          (wSentLengthStdDev weights * features !! 4) +
+          (wCommasPerSentence weights * features !! 5) +
+          bias weights
+  in sigmoid z
 
-calculateUniqueWordRatio :: [T.Text] -> Double
-calculateUniqueWordRatio totalWords = 
-    let totalWordCount = fromIntegral $ max 1 (length totalWords)
-        uniqueWordCount = fromIntegral $ Set.size (Set.fromList totalWords)
-    in uniqueWordCount / totalWordCount
+-- core function to calculate loss function regarding each weight
+-- calculates loss function
+calculateGradient :: Weights -> ([Double], Double) -> Weights
+calculateGradient weights (features, y) =
+  let prediction = predict weights features
+      error' = prediction - y
+  in Weights
+       { wSentenceLength = error' * (features !! 0)
+       , wWordLength = error' * (features !! 1)
+       , wFlesch = error' * (features !! 2)
+       , wUniqueWordRatio = error' * (features !! 3)
+       , wSentLengthStdDev = error' * (features !! 4)
+       , wCommasPerSentence = error' * (features !! 5)
+       , bias = error'
+       }
 
--- pure function which extracts features from text
--- saves it in BookFeature struct
-extractFeaturesFromText :: FilePath -> T.Text -> BookFeatures
-extractFeaturesFromText path text =
-  let
-    sentences = getSentences text 
-    totalWords = getWordsFromSentences sentences
-  in
-    BookFeatures
-      path
-      (calculateAvgSentenceLength sentences)
-      (averageOf (fromIntegral . T.count (T.pack ",")) sentences) -- TODO: calculateAvgCommas func
-      (calculateUniqueWordRatio totalWords)
-      (averageOf (fromIntegral . T.length) totalWords) -- TODO: calculateAvgWorldLength func
+-- Updates weights using gradient descent with L2 regularization (to prevent waaay too big weights)
+-- learningRate controls step size, basically movement speed (are you a snake or a cheetah? XD).
+-- lambda is the regularization strength.
+-- Each weight is updated as: w := w - learning * (grad + regularization * w)
+updateWeights :: Weights -> Weights -> Double -> Double -> Weights
+updateWeights oldWeights avgGrad learningRate lambda =
+  Weights
+    { wSentenceLength = wSentenceLength oldWeights - learningRate * (wSentenceLength avgGrad + lambda * wSentenceLength oldWeights)
+    , wWordLength = wWordLength oldWeights - learningRate * (wWordLength avgGrad + lambda * wWordLength oldWeights)
+    , wFlesch = wFlesch oldWeights - learningRate * (wFlesch avgGrad + lambda * wFlesch oldWeights)
+    , wUniqueWordRatio = wUniqueWordRatio oldWeights - learningRate * (wUniqueWordRatio avgGrad + lambda * wUniqueWordRatio oldWeights)
+    , wSentLengthStdDev = wSentLengthStdDev oldWeights - learningRate * (wSentLengthStdDev avgGrad + lambda * wSentLengthStdDev oldWeights)
+    , wCommasPerSentence = wCommasPerSentence oldWeights - learningRate * (wCommasPerSentence avgGrad + lambda * wCommasPerSentence oldWeights)
+    , bias = bias oldWeights - learningRate * bias avgGrad
+    }
 
-calculateCategoryFeatures :: [BookFeatures] -> String -> BookFeatures
-calculateCategoryFeatures features categoryName =
-  BookFeatures
-    categoryName
-    (averageOf avgSentenceLength features) -- gets list of avg sentence lengths, then takes avg func
-    (averageOf avgCommasPerSentence features) -- similarly
-    (averageOf uniqueWordRatio features)
-    (averageOf avgWordLength features)
+-- Trains model for one epoch (one full pass over training data).
+-- Averages gradients over all training examples (batch gradient descent).
+-- Then applies weight updates based on the averaged gradients.
+trainSingleEpoch :: Double -> Double -> [([Double], Double)] -> Weights -> Weights
+trainSingleEpoch learningRate lambda trainingData currentWeights =
+  let gradients = L.map (calculateGradient currentWeights) trainingData
+      numSamples = fromIntegral $ L.length trainingData
+      avgGrad =
+        Weights
+          { wSentenceLength = L.sum (L.map wSentenceLength gradients) / numSamples
+          , wWordLength = L.sum (L.map wWordLength gradients) / numSamples
+          , wFlesch = L.sum (L.map wFlesch gradients) / numSamples
+          , wUniqueWordRatio = L.sum (L.map wUniqueWordRatio gradients) / numSamples
+          , wSentLengthStdDev = L.sum (L.map wSentLengthStdDev gradients) / numSamples
+          , wCommasPerSentence = L.sum (L.map wCommasPerSentence gradients) / numSamples
+          , bias = L.sum (L.map bias gradients) / numSamples
+          }
+  in updateWeights currentWeights avgGrad learningRate lambda
 
-calculateThresholds :: [BookFeatures] -> [BookFeatures] -> Thresholds
-calculateThresholds childrenFeatures adultFeatures =
-  let
-    avgChild = calculateCategoryFeatures childrenFeatures "children"
-    avgAdult = calculateCategoryFeatures adultFeatures "adults"
-    mid a b = (a + b) / 2
-  in Thresholds
-       (mid (avgSentenceLength avgChild) (avgSentenceLength avgAdult))
-       (mid (avgCommasPerSentence avgChild) (avgCommasPerSentence avgAdult))
-       (mid (uniqueWordRatio avgChild) (uniqueWordRatio avgAdult))
-       (mid (avgWordLength avgChild) (avgWordLength avgAdult))
+-- Repeatedly trains the model for a given number of epochs.
+-- At each epoch, performs one weight-list update using `trainSingleEpoch`.
+-- NOTE: note that \w is not a single weight, its the current weight list we train more and more
+-- and this is being done on the initialWeights, originally, and for epochs times
+trainModel :: Double -> Double -> Int -> [([Double], Double)] -> Weights -> Weights
+trainModel learningRate lambda epochs trainingData initialWeights =
+  L.foldl' (\w _ -> trainSingleEpoch learningRate lambda trainingData w) initialWeights [1 .. epochs]
 
--- calculateScore = avgSentenceLength * w1 + avgCommasPerSentence * w2 + ...
--- assessScore = (calculateScore > Threshhold??) AdultBook else ChildrensBook
-
-classifyBook :: Thresholds -> BookFeatures -> Classification
-classifyBook thresholds features = 
-  let
-    childScore :: Int
-    childScore = 0
-               + (if avgSentenceLength features < sentenceLengthThreshold thresholds then 1 else 0)
-               + (if avgCommasPerSentence features < commasThreshold thresholds then 1 else 0)
-               + (if uniqueWordRatio features < ratioThreshold thresholds then 1 else 0)
-               + (if avgWordLength features < wordLengthThreshold thresholds then 1 else 0)
-    
-    -- Einfache Logik: Wenn die Mehrheit der Kriterien für "Kind" spricht, ist es ein Kinderbuch.
-    -- Dies kann man viel komplexer machen!
-    in if childScore >= 3
-       then ChildrensBook
-       else AdultBook
+-- Pretty self explanatory i guess: 
+-- Classifies a book based on its features and trained weights.
+-- Uses normalized features and threshold 0.5 to decide:
+-- > 0.5 ⇒ Adult, ≤ 0.5 ⇒ Children.
+classify :: Weights -> CategoryStats -> BookFeatures -> Classification
+classify weights stats features =
+  let normalized = normalizeFeatures features stats
+      prediction = predict weights normalized
+  in if prediction > 0.5 then Adult else Children

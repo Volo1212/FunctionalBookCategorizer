@@ -3,94 +3,108 @@ module Main where
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
 import qualified Data.Text.IO as TIO
-import Control.Monad (forM)
--- import Text.Printf (printf)
 import System.CPUTime
 import Text.Printf
 import Control.Concurrent.Async (mapConcurrently)
+import qualified Data.Text as T
+import Data.Text (Text)
+import qualified Data.List as L
+import Control.Monad (forM, when)
+import Control.Exception (evaluate)
 
 import Types
-import CoreLogic
+import CoreLogic 
+import Helpers
+
+loadBooksFromDir :: FilePath -> Classification -> IO [(Text, Classification)]
+loadBooksFromDir dir classification = do
+  files <- listDirectory dir
+  let txtFiles = L.filter (L.isSuffixOf ".txt") files
+  forM txtFiles $ \file -> do
+    content <- TIO.readFile (dir </> file)
+    return (content, classification)
 
 timeSth :: String -> IO a -> IO a 
 timeSth label action = do
-    start <- getCPUTime
-    result <- action
-    end <- getCPUTime
-    let diff = fromIntegral (end - start) / (10^12)
-    printf "%s: %.3f sec\n" label (diff :: Double)
-    return result
-
-printFeatures :: BookFeatures -> IO ()
-printFeatures (BookFeatures fp slen commas uniq wl) = do
-  putStrLn $ "File: " ++ fp
-  printf "  avgSentenceLength:     %.2f\n" slen
-  printf "  avgCommasPerSentence:  %.2f\n" commas
-  printf "  uniqueWordRatio:       %.3f\n" uniq
-  printf "  avgWordLength:         %.2f\n" wl
-
--- IO monad function which takes dir path and recursively calls FeatureExtractor for every book
--- returns IO wrapper of BookFeatues (IO [BookFeatueres])
-processDir :: FilePath -> IO [BookFeatures]
-processDir dir = do
-  files <- listDirectory dir
-  mapConcurrently (\file -> do
-    let fullPath = dir </> file
-    content <- TIO.readFile fullPath
-    putStrLn $ "Verarbeite " ++ fullPath
-    return $ extractFeaturesFromText fullPath content
-    ) files
-
-testChildrenAccuracy :: Thresholds -> IO ()
-testChildrenAccuracy thresholds = do
-  children <- processDir ("books/children")
-
-  let total = length children
-      correct = length $ filter (\bf -> classifyBook thresholds bf == ChildrensBook) children
-      percent = fromIntegral correct / fromIntegral total * 100
-
-  putStrLn $ "Kinderbücher korrekt klassifiziert: " ++ show correct ++ " / " ++ show total
-  printf "Trefferquote: %.2f%%\n" (percent :: Double)
-
-testAdultAccuracy :: Thresholds -> IO ()
-testAdultAccuracy thresholds = do
-  adults <- processDir ("books/adults")
-
-  let total = length adults
-      correct = length $ filter (\bf -> classifyBook thresholds bf == AdultBook) adults
-      percent = fromIntegral correct / fromIntegral total * 100
-
-  putStrLn $ "Erwachsenenbücher korrekt klassifiziert: " ++ show correct ++ " / " ++ show total
-  printf "Trefferquote: %.2f%%\n" (percent :: Double)
+  start <- getCPUTime
+  result <- action >>= evaluate
+  end <- getCPUTime
+  let seconds = fromIntegral (end - start) / (10^12)
+  printf "   -> %s: %.3f Sekunden\n" label (seconds :: Double)
+  return result
 
 main :: IO ()
-main = timeSth "Gesamtlaufzeit" $ do
-    let childrenFP = "books/children"
-    let adultsFP = "books/adults"
-    -- read in all children/ books -> IO 
-    childrenFeatures <- processDir (childrenFP)
-    -- read in all adult/ books -> IO
-    adultFeatures <- processDir (adultsFP)
-    -- calculate thresholds by calculating avg of childrens and adults first
-    let avgChildren = calculateCategoryFeatures childrenFeatures childrenFP
-    printFeatures avgChildren
+main = do
+  let learningRate = 0.1
+      lambda = 0.01
+      epochs = 1000
 
-    let avgAdults = calculateCategoryFeatures adultFeatures adultsFP
-    printFeatures avgAdults
+  putStrLn "Buchklassifizierungs-Modell v2"
+  putStrLn "================================"
 
-    let thresholds = calculateThresholds childrenFeatures adultFeatures
-    print thresholds
-    -- read in test/ books and categorize them 
+  putStrLn "1. Lade Bücher aus den Verzeichnissen..."
+  childrenBooks <- loadBooksFromDir "books/children" Children
+  adultBooks    <- loadBooksFromDir "books/adults" Adult
+  let allBooks = childrenBooks ++ adultBooks
+  when (null allBooks) $
+    error "Keine Bücher gefunden. Stelle sicher, dass 'books/children' und 'books/adults' .txt-Dateien enthalten."
+  printf "   -> %d Bücher insgesamt geladen.\n" (length allBooks)
 
-    -- testChildrenAccuracy thresholds
-    testAdultAccuracy thresholds
+  putStrLn "2. Extrahiere Features..."
+  let labeledFeatures = [(extractFeatures text, label) | (text, label) <- allBooks]
 
-    -- undefinedFeatures <- processDir "books/uncategorized"
+  putStrLn "3. Berechne globale Normalisierungsstatistiken..."
+  let globalStats = calculateGlobalStats $ map fst labeledFeatures
 
-    -- forM undefinedFeatures $ \features -> do
-    --     printFeatures features
-    --     putStrLn $ "  Classification: " ++ show (classifyBook thresholds features)
-    --     putStrLn ""
+  putStrLn "4. Initialisiere Trainingsdaten (Test-Split übersprungen)..."
+  let trainingData =
+        [ (normalizeFeatures features globalStats, if label == Adult then 1.0 else 0.0)
+        | (features, label) <- labeledFeatures
+        ]
 
-    putStrLn ("Completed")
+  putStrLn $ "5. Trainiere Modell (" ++ show epochs ++ " Epochen)..."
+  let initialWeights = Weights 0 0 0 0 0 0 0
 
+  finalWeights <- timeSth "Trainingszeit" $
+    return $ trainModel learningRate lambda epochs trainingData initialWeights
+
+  putStrLn "6. Training abgeschlossen. Finale Gewichte:"
+  printf "   -> wSentenceLength:    %+.4f\n" (wSentenceLength finalWeights)
+  printf "   -> wWordLength:        %+.4f\n" (wWordLength finalWeights)
+  printf "   -> wFlesch:            %+.4f\n" (wFlesch finalWeights)
+  printf "   -> wUniqueWordRatio:   %+.4f\n" (wUniqueWordRatio finalWeights)
+  printf "   -> wSentLengthStdDev:  %+.4f\n" (wSentLengthStdDev finalWeights)
+  printf "   -> wCommasPerSentence: %+.4f\n" (wCommasPerSentence finalWeights)
+  printf "   -> Bias:               %+.4f\n" (bias finalWeights)
+
+  putStrLn "7. Evaluiere Modellgenauigkeit auf dem TRAININGS-Set..."
+  _ <- timeSth "Evaluationszeit" $ do
+    let childrenItems = L.filter ((== Children) . snd) labeledFeatures
+        adultItems    = L.filter ((== Adult) . snd) labeledFeatures
+
+        isCorrect (features, label) =
+          classify finalWeights globalStats features == label
+
+        correctChildren = length $ filter isCorrect childrenItems
+        correctAdults   = length $ filter isCorrect adultItems
+        totalCorrect    = correctChildren + correctAdults
+
+        totalChildren = length childrenItems
+        totalAdults   = length adultItems
+        totalItems    = totalChildren + totalAdults
+
+    printf "   -> Genauigkeit Kinderbücher: %.2f%% (%d von %d)\n"
+      (100 * fromIntegral correctChildren / fromIntegral totalChildren :: Double)
+      correctChildren totalChildren
+
+    printf "   -> Genauigkeit Erwachsenenbücher: %.2f%% (%d von %d)\n"
+      (100 * fromIntegral correctAdults / fromIntegral totalAdults :: Double)
+      correctAdults totalAdults
+
+    printf "   -> Gesamtgenauigkeit: %.2f%% (%d von %d)\n"
+      (100 * fromIntegral totalCorrect / fromIntegral totalItems :: Double)
+      totalCorrect totalItems
+
+    return ()
+
+  putStrLn "Evaluierung abgeschlossen."
