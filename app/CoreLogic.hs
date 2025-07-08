@@ -84,10 +84,14 @@ predict weights features =
 
 -- core function to calculate loss function regarding each weight
 -- calculates loss function
+-- expectedResult: based on label (e.g. 1 for adult or 0 for child)
+-- the more the prediction suggests its a child it will be closer to 0 and vice 
+-- IMPORTANT: the gradient points into the direction of the BIGGEST LOSS (steepest increase)
+-- WE WANT TO GO IN THE OPPOSITE DIRECTION when we update weights so we get the BIGGEST WIN
 calculateGradient :: Weights -> ([Double], Double) -> Weights
-calculateGradient weights (features, y) =
+calculateGradient weights (features, expectedResult) =
   let prediction = predict weights features
-      error' = prediction - y
+      error' = prediction - expectedResult
   in Weights
        { wSentenceLength = error' * (features !! 0)
        , wWordLength = error' * (features !! 1)
@@ -144,7 +148,7 @@ trainModel learningRate lambda epochs trainingData initialWeights =
 -- Pretty self explanatory i guess: 
 -- Classifies a book based on its features and trained weights.
 -- Uses normalized features and threshold 0.5 to decide:
--- > 0.5 ⇒ Adult, ≤ 0.5 ⇒ Children.
+-- > 0.5 -> Adult, ≤ 0.5 -> Children.
 classify :: Weights -> CategoryStats -> BookFeatures -> Classification
 classify weights stats features =
   let normalized = normalizeFeatures features stats
