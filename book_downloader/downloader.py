@@ -4,7 +4,7 @@ import time
 import re
 
 # Directory to save books
-SAVE_DIR = "books/adults"
+SAVE_DIR = "books/uncategorized"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Target number of books
