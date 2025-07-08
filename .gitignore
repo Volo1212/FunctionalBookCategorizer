@@ -12,3 +12,6 @@ LICENSE
 
 // ignoring books folder for obvious reasons (CONTENT BIIIIIIG)
 /books
+
+// ignoring book_downloader python environment folder 
+/book_downloader/venv
