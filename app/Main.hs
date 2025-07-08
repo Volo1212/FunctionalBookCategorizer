@@ -10,6 +10,7 @@ import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.List as L
 import Control.Monad (forM, when)
+import Control.Exception (evaluate)
 
 import Types
 import CoreLogic 
@@ -23,46 +24,51 @@ loadBooksFromDir dir classification = do
     content <- TIO.readFile (dir </> file)
     return (content, classification)
 
--- TODO: has to be cleaned up 
+timeSth :: String -> IO a -> IO a 
+timeSth label action = do
+  start <- getCPUTime
+  result <- action >>= evaluate
+  end <- getCPUTime
+  let seconds = fromIntegral (end - start) / (10^12)
+  printf "   -> %s: %.3f Sekunden\n" label (seconds :: Double)
+  return result
+
 main :: IO ()
 main = do
   let learningRate = 0.1
-  let lambda = 0.01
-  let epochs = 1000
-  let testSplitRatio = 0.2
+      lambda = 0.01
+      epochs = 1000
 
-  printf "Buchklassifizierungs-Modell v2\n"
-  printf "================================\n"
-  
-  printf "1. Lade Bücher aus den Verzeichnissen...\n"
+  putStrLn "Buchklassifizierungs-Modell v2"
+  putStrLn "================================"
+
+  putStrLn "1. Lade Bücher aus den Verzeichnissen..."
   childrenBooks <- loadBooksFromDir "books/children" Children
-  adultBooks <- loadBooksFromDir "books/adults" Adult
+  adultBooks    <- loadBooksFromDir "books/adults" Adult
   let allBooks = childrenBooks ++ adultBooks
-  when (null allBooks) $ error "Keine Bücher gefunden. Stelle sicher, dass die Ordner books/children und books/adults existieren und .txt-Dateien enthalten."
+  when (null allBooks) $
+    error "Keine Bücher gefunden. Stelle sicher, dass 'books/children' und 'books/adults' .txt-Dateien enthalten."
   printf "   -> %d Bücher insgesamt geladen.\n" (length allBooks)
 
-  printf "2. Extrahiere Features aus jedem Buch...\n"
+  putStrLn "2. Extrahiere Features..."
   let labeledFeatures = [(extractFeatures text, label) | (text, label) <- allBooks]
-  
-  printf "3. Berechne globale Statistiken für die symmetrische Normalisierung...\n"
-  let allFeatures = map fst labeledFeatures
-  let globalStats = calculateGlobalStats allFeatures
-  
-  printf "4. SKIPPING: Aufteilen der Daten in Trainings- und Test-Set...\n"
-  -- let splitIndex = floor $ fromIntegral (length labeledFeatures) * (1.0)
-  -- let (trainItems, testItems) = L.splitAt splitIndex labeledFeatures
-  let trainItems = labeledFeatures
 
+  putStrLn "3. Berechne globale Normalisierungsstatistiken..."
+  let globalStats = calculateGlobalStats $ map fst labeledFeatures
+
+  putStrLn "4. Initialisiere Trainingsdaten (Test-Split übersprungen)..."
   let trainingData =
         [ (normalizeFeatures features globalStats, if label == Adult then 1.0 else 0.0)
-        | (features, label) <- trainItems
+        | (features, label) <- labeledFeatures
         ]
 
-  printf "5. Trainiere das Modell mit %d Epochen (Trainingsdaten: %d)...\n" epochs (length trainingData) 
+  putStrLn $ "5. Trainiere Modell (" ++ show epochs ++ " Epochen)..."
   let initialWeights = Weights 0 0 0 0 0 0 0
-  let finalWeights = trainModel learningRate lambda epochs trainingData initialWeights
 
-  printf "6. Training abgeschlossen. Finale Gewichte:\n"
+  finalWeights <- timeSth "Trainingszeit" $
+    return $ trainModel learningRate lambda epochs trainingData initialWeights
+
+  putStrLn "6. Training abgeschlossen. Finale Gewichte:"
   printf "   -> wSentenceLength:    %+.4f\n" (wSentenceLength finalWeights)
   printf "   -> wWordLength:        %+.4f\n" (wWordLength finalWeights)
   printf "   -> wFlesch:            %+.4f\n" (wFlesch finalWeights)
@@ -71,35 +77,34 @@ main = do
   printf "   -> wCommasPerSentence: %+.4f\n" (wCommasPerSentence finalWeights)
   printf "   -> Bias:               %+.4f\n" (bias finalWeights)
 
-  printf "7. Evaluiere Modellgenauigkeit auf dem TRAININGS-Set...\n"
+  putStrLn "7. Evaluiere Modellgenauigkeit auf dem TRAININGS-Set..."
+  _ <- timeSth "Evaluationszeit" $ do
+    let childrenItems = L.filter ((== Children) . snd) labeledFeatures
+        adultItems    = L.filter ((== Adult) . snd) labeledFeatures
 
-  -- Aufteilen der zu testenden Daten nach ihrer wahren Kategorie
-  let childrenItems = L.filter (\(_, label) -> label == Children) trainItems
-  let adultItems    = L.filter (\(_, label) -> label == Adult) trainItems
+        isCorrect (features, label) =
+          classify finalWeights globalStats features == label
 
-  -- Helferfunktion zur Überprüfung einer einzelnen Vorhersage
-  let isCorrect (features, actualLabel) =
-        let predictedLabel = classify finalWeights globalStats features
-        in predictedLabel == actualLabel
+        correctChildren = length $ filter isCorrect childrenItems
+        correctAdults   = length $ filter isCorrect adultItems
+        totalCorrect    = correctChildren + correctAdults
 
-  -- Berechne korrekte Vorhersagen pro Kategorie
-  let correctChildren = length $ L.filter isCorrect childrenItems
-  let correctAdults   = length $ L.filter isCorrect adultItems
-  let totalCorrect    = correctChildren + correctAdults
+        totalChildren = length childrenItems
+        totalAdults   = length adultItems
+        totalItems    = totalChildren + totalAdults
 
-  -- Gesamtzahlen pro Kategorie
-  let totalChildren = length childrenItems
-  let totalAdults   = length adultItems
-  let totalItems    = length trainItems
-
-  printf "   -> Genauigkeit Kinderbücher: %.2f%% (%d von %d)\n"
+    printf "   -> Genauigkeit Kinderbücher: %.2f%% (%d von %d)\n"
       (100 * fromIntegral correctChildren / fromIntegral totalChildren :: Double)
       correctChildren totalChildren
 
-  printf "   -> Genauigkeit Erwachsenenbücher: %.2f%% (%d von %d)\n"
+    printf "   -> Genauigkeit Erwachsenenbücher: %.2f%% (%d von %d)\n"
       (100 * fromIntegral correctAdults / fromIntegral totalAdults :: Double)
       correctAdults totalAdults
 
-  printf "   -> Gesamtgenauigkeit: %.2f%% (%d von %d)\n"
+    printf "   -> Gesamtgenauigkeit: %.2f%% (%d von %d)\n"
       (100 * fromIntegral totalCorrect / fromIntegral totalItems :: Double)
       totalCorrect totalItems
+
+    return ()
+
+  putStrLn "Evaluierung abgeschlossen."
