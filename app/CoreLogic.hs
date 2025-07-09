@@ -100,13 +100,6 @@ calculateGradient :: Weights -> ([Double], Double) -> Weights
 calculateGradient weights (features, expectedResult) =
   let prediction = predict weights features
 
-    --   weight = if expectedResult == 0.0 -- Children
-    --             then 1.5 -- Höheres Gewicht für die Minderheitsklasse
-    --             else 1.0 -- Geringeres Gewicht für die Mehrheitsklasse
-
-    -- -- Der Fehler wird jetzt mit dem Gewicht multipliziert.
-    --   error' = weight * (prediction - expectedResult)
-
       error' = prediction - expectedResult
   in Weights
        { wSentenceLength = error' * (features !! 0)
@@ -118,6 +111,23 @@ calculateGradient weights (features, expectedResult) =
        , bias = error'
        }
 
+updateSingleWeight :: Double -> Double -> Double -> Double -> Double
+updateSingleWeight oldWeight learningRate lambda avgGradWeight =
+  oldWeight - learningRate * (avgGradWeight + lambda * oldWeight)
+
+
+-- updateWeights :: Weights -> Weights -> Double -> Double -> Weights
+-- updateWeights oldWeights avgGrad learningRate lambda =
+--   Weights
+--     { wSentenceLength = updateSingleWeight (wSentenceLength oldWeights) learningRate lambda (wSentenceLength avgGrad)
+--     , wWordLength = updateSingleWeight (wWordLength oldWeights) learningRate lambda (wWordLength avgGrad)
+--     , wFlesch = updateSingleWeight (wFlesch oldWeights) learningRate lambda (wFlesch avgGrad)
+--     , wUniqueWordRatio = updateSingleWeight (wUniqueWordRatio oldWeights) learningRate lambda (wUniqueWordRatio avgGrad)
+--     , wSentLengthStdDev = updateSingleWeight (wSentLengthStdDev oldWeights) learningRate lambda (wSentLengthStdDev avgGrad)
+--     , wCommasPerSentence = updateSingleWeight (wCommasPerSentence oldWeights) learningRate lambda (wCommasPerSentence avgGrad)
+--     , bias = bias oldWeights - learningRate * bias avgGrad -- no L2 regularization on bias
+--     }
+    
 -- Updates weights using gradient descent with L2 regularization (to prevent waaay too big weights)
 -- learningRate controls step size, basically movement speed (are you a snake or a cheetah? XD).
 -- lambda is the regularization strength.
@@ -133,6 +143,11 @@ updateWeights oldWeights avgGrad learningRate lambda =
     , wCommasPerSentence = wCommasPerSentence oldWeights - learningRate * (wCommasPerSentence avgGrad + lambda * wCommasPerSentence oldWeights)
     , bias = bias oldWeights - learningRate * bias avgGrad
     }
+
+-- batch gradient descent which takes all numSamples into account (more stable but slower than on less)
+-- averageGradientComponent :: (Weights -> Double) -> [Weights] -> Double -> Double
+-- averageGradientComponent accessor grads n =
+--   L.sum (L.map accessor grads) / n
 
 -- Trains model for one epoch (one full pass over training data).
 -- Averages gradients over all training examples (batch gradient descent).
