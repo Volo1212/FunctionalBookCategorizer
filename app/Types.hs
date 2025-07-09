@@ -23,7 +23,7 @@ data BookFeatures = BookFeatures
   , uniqueWordRatio      :: !Double
   , sentenceLengthStdDev :: !Double
   , avgCommasPerSentence :: !Double
-  } deriving (Show)
+  } deriving (Eq, Show)
 
 -- calculated weights of gradient descent, starting with initial values
 -- bias: additional weight which doesnt correspond to a particular feature. 

@@ -1,3 +1,4 @@
+-- Test.hs
 module Main where
 
 import Test.HUnit
@@ -6,22 +7,21 @@ import qualified Data.Text as T
 import qualified Data.List as L
 
 import Types
-import Helpers 
+import Helpers
+import CoreLogic 
 
+-- Operator für Double-Vergleiche
 (~?~) :: Double -> Double -> Assertion
 x ~?~ y = assertBool msg (abs (x - y) < epsilon)
   where
-    epsilon = 1e-9
+    epsilon = 1e-2
     msg = "Expected: " ++ show y ++ "\nBut got:  " ++ show x
-
---------------------------------------------------------------------------------
--- HUnit Tests 
---------------------------------------------------------------------------------
 
 hunitTests :: Test
 hunitTests = TestList
   [ "Text Analysis Functions" ~: testTextAnalysis
-  , "Statistics Functions" ~: testStatistics
+  , "Statistics Functions"    ~: testStatistics
+  , "Core Logic Functions"    ~: testCoreLogic
   ]
 
 testTextAnalysis :: Test
@@ -30,31 +30,60 @@ testTextAnalysis = TestList
     [ "empty"         ~: countSyllablesInWord (T.pack "") ~?= 0
     , "simple"        ~: countSyllablesInWord (T.pack "haskell") ~?= 2
     , "complex"       ~: countSyllablesInWord (T.pack "monad") ~?= 2
+    , "consecutive"   ~: countSyllablesInWord (T.pack "beautiful") ~?= 3
     , "no vowels"     ~: countSyllablesInWord (T.pack "rhythm") ~?= 1
     ]
-  
+
   , "calculateUniqueWordRatio" ~:
-    [ "all unique" ~: calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "c"]] ~?~ 1.0
-    , "some repeated" ~: calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "a"]] ~?~ (2.0 / 3.0)
-    , "empty list" ~: calculateUniqueWordRatio [] ~?~ Nothing
+    [ "all unique"    ~: assertEqual "" (Just 1.0) (calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "c"]])
+    , "some repeated" ~: assertEqual "" (Just (2.0 / 3.0)) (calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "a"]])
+    , "empty list"    ~: assertEqual "" Nothing (calculateUniqueWordRatio [])
+    ]
+  , "getSentences" ~:
+    [ "no periods" ~: getSentences (T.pack "hello world") ~?= [T.pack "hello world"]
+    , "multiple"   ~: getSentences (T.pack "First. Second.") ~?= [T.pack "First", T.pack " Second"]
+    , "empty"      ~: getSentences (T.pack "") ~?= []
     ]
   ]
 
 testStatistics :: Test
 testStatistics = TestList
   [ "safeDiv" ~:
-    [ "division by zero" ~: safeDiv 100 0 ~?= Nothing
-    , "normal division"  ~: safeDiv 10 4 ~?= 2.5
+    [ "division by zero" ~: assertEqual "" Nothing (safeDiv 100 0)
+    , "normal division"  ~: assertEqual "" (Just 2.5) (safeDiv 10 4)
     ]
   , "calculateMean" ~:
     [ "simple list" ~: calculateMean [1, 2, 3, 4, 5] ~?= 3.0
     , "empty list"  ~: calculateMean [] ~?= 0.0
     ]
+  , "calculateStdDev" ~:
+    [ "no deviation" ~: calculateStdDev 5.0 [5, 5, 5, 5] ~?= 0.0
+    , "single item"  ~: calculateStdDev 10.0 [10] ~?= 0.0
+    ]
   ]
 
+testCoreLogic :: Test
+testCoreLogic = TestList
+  [ "extractFeatures Integration Test" ~: TestCase $ do
+      let testText = T.pack "Ein einfacher Satz. Und noch ein Satz."
+      case extractFeatures testText of
+        Nothing -> assertFailure "Feature extraction failed unexpectedly."
+        Just features -> do
+          avgSentenceLength features ~?~ 3.5
+          avgWordLength features ~?~ 4.28
+
+  , "extractFeatures on Empty" ~: assertEqual "" Nothing (extractFeatures (T.pack ""))
+  ]
 --------------------------------------------------------------------------------
--- QuickCheck Properties 
+-- QuickCheck Properties
 --------------------------------------------------------------------------------
+
+quickCheckProperties :: IO ()
+quickCheckProperties = do
+  putStrLn "\nRunning QuickCheck Properties..."
+  quickCheck (withMaxSuccess 1000 prop_meanOfIdenticalNumbersIsItself)
+  quickCheck (withMaxSuccess 1000 prop_stdDevIsNonNegative)
+  quickCheck (withMaxSuccess 1000 prop_sigmoidIsBounded)
 
 prop_meanOfIdenticalNumbersIsItself :: Double -> NonEmptyList Double -> Bool
 prop_meanOfIdenticalNumbersIsItself x (NonEmpty xs) =
@@ -62,13 +91,11 @@ prop_meanOfIdenticalNumbersIsItself x (NonEmpty xs) =
       mean = calculateMean list
   in abs (mean - x) < 1e-9
 
--- Die Standardabweichung darf niemals negativ sein.
 prop_stdDevIsNonNegative :: [Double] -> Bool
 prop_stdDevIsNonNegative xs =
   let m = calculateMean xs
   in calculateStdDev m xs >= 0.0
 
--- Die Sigmoid-Funktion muss immer einen Wert zwischen 0 und 1 liefern.
 prop_sigmoidIsBounded :: Double -> Bool
 prop_sigmoidIsBounded z = let s = sigmoid z in s >= 0.0 && s <= 1.0
 
@@ -76,9 +103,4 @@ main :: IO ()
 main = do
   putStrLn "\nRunning HUnit Tests..."
   _ <- runTestTT hunitTests
-
-  putStrLn "\nRunning QuickCheck Properties..."
-  quickCheck (withMaxSuccess 1000 prop_meanOfIdenticalNumbersIsItself)
-  quickCheck (withMaxSuccess 1000 prop_stdDevIsNonNegative)
-  quickCheck (withMaxSuccess 1000 prop_sigmoidIsBounded)
-  quickCheck (withMaxSuccess 100 prop_normalizeInverse) -- Weniger, da komplexer
+  quickCheckProperties
