@@ -10,11 +10,15 @@ import Types
 -- so that our eyes wont turn to ash as we slowly dive into madness from Haskell anyway
 
 ---------------------------
+--GENERAL
+---------------------------
+safeDiv :: Double -> Int -> Maybe Double
+safeDiv _ 0 = Nothing
+safeDiv n d = Just $ n / fromIntegral d
+
+---------------------------
 -- TEXT BASED 
 ---------------------------
-safeDiv :: Double -> Int -> Double
-safeDiv _ 0 = 0.0
-safeDiv n d = n / fromIntegral d
 
 getSentences :: T.Text -> [T.Text]
 getSentences = L.filter (not . T.null) . T.splitOn (T.pack ".")
@@ -25,7 +29,7 @@ getWords = L.map (T.words . T.toLower)
 calculateSentenceLengths :: [[T.Text]] -> [Int]
 calculateSentenceLengths = L.map L.length
 
-calculateAvgSentenceLength :: [Int] -> Double
+calculateAvgSentenceLength :: [Int] -> Maybe Double
 calculateAvgSentenceLength lengths = safeDiv (fromIntegral $ L.sum lengths) (L.length lengths)
 
 isVowel :: Char -> Bool
@@ -40,25 +44,23 @@ countSyllablesInWord word
       | isVowel currentChar && not (isVowel lastChar) = (n + 1, currentChar) -- only count if current is vowel and previous isnt (to prevent aaaaaa ?)
       | otherwise = (n, currentChar)
 
--- TODO: rename
 calculateSyllablesPerWord :: [[T.Text]] -> [Int]
 calculateSyllablesPerWord = L.map countSyllablesInWord . L.concat
 
--- TODO: rename
-calculateAvgSyllablesPerWord :: [Int] -> Double
+calculateAvgSyllablesPerWord :: [Int] -> Maybe Double
 calculateAvgSyllablesPerWord syllables = safeDiv (fromIntegral $ L.sum syllables) (L.length syllables)
 
 calculateWordLengths :: [[T.Text]] -> [Int]
 calculateWordLengths = L.map T.length . L.concat
 
-calculateAvgWordLength :: [Int] -> Double
+calculateAvgWordLength :: [Int] -> Maybe Double
 calculateAvgWordLength lengths = safeDiv (fromIntegral $ L.sum lengths) (L.length lengths)
 
 -- based on mathematical formula for english texts
 calculateFleschScore :: Double -> Double -> Double
 calculateFleschScore avgSentLen avgSyllables = 206.835 - (1.015 * avgSentLen) - (84.6 * avgSyllables)
 
-calculateUniqueWordRatio :: [[T.Text]] -> Double
+calculateUniqueWordRatio :: [[T.Text]] -> Maybe Double
 calculateUniqueWordRatio wordLists =
   let allWords = L.concat wordLists
       totalWords = L.length allWords
@@ -68,24 +70,24 @@ calculateUniqueWordRatio wordLists =
 countCommas :: T.Text -> Int
 countCommas sentence = T.count (T.pack ",") sentence
 
-calculateAvgCommasPerSentence :: [T.Text] -> Double
+calculateAvgCommasPerSentence :: [T.Text] -> Maybe Double
 calculateAvgCommasPerSentence sentences =
   let totalCommas = fromIntegral $ L.sum $ L.map countCommas sentences
   in safeDiv totalCommas (L.length sentences)
 
 ---------------------------
--- STATISTICS ARE AWESOME BRO JUST SMILE PLEEEEEEASE
+-- STATISTICS 
 ---------------------------
-calculateMean :: [Double] -> Double
+calculateMean :: [Double] -> Maybe Double
 calculateMean xs
-  | null xs = 0.0
-  | otherwise = L.sum xs / fromIntegral (L.length xs)
+  | null xs = Nothing
+  | otherwise = Just $ L.sum xs / fromIntegral (L.length xs)
 
 -- square root of the variance, mean val is need obviously like duh
-calculateStdDev :: Double -> [Double] -> Double
-calculateStdDev meanVal xs
-  | null xs = 0.0
-  | otherwise = sqrt $ L.sum (L.map (\x -> (x - meanVal) ^ 2) xs) / fromIntegral (L.length xs)
+calculateStdDev :: Maybe Double -> [Double] -> Maybe Double
+calculateStdDev Nothing _ = Nothing -- if there is no mean there is no std devf
+calculateStdDev _ [] = Just 0.0      -- deviation of empty list is 0.0
+calculateStdDev (Just meanVal) xs = Just $ sqrt $ L.sum (L.map (\x -> (x - meanVal) ^ 2) xs) / fromIntegral (L.length xs)
 
 -- mathemtical formula standardization of a value: 
 -- value minus mean of that value divided by standard deviation

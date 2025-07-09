@@ -11,6 +11,7 @@ import Data.Text (Text)
 import qualified Data.List as L
 import Control.Monad (forM, when)
 import Control.Exception (evaluate)
+import Data.Maybe (mapMaybe)
 
 import Types
 import CoreLogic 
@@ -45,16 +46,25 @@ main = do
   putStrLn "1. Lade Bücher aus den Verzeichnissen..."
   childrenBooks <- loadBooksFromDir "books/children" Children
   adultBooks    <- loadBooksFromDir "books/adults" Adult
+
   let allBooks = childrenBooks ++ adultBooks
+  
   when (null allBooks) $
     error "Keine Bücher gefunden. Stelle sicher, dass 'books/children' und 'books/adults' .txt-Dateien enthalten."
   printf "   -> %d Bücher insgesamt geladen.\n" (length allBooks)
 
+  -- only keeps "Just" results all Nothing values are filtered out
   putStrLn "2. Extrahiere Features..."
-  let labeledFeatures = [(extractFeatures text, label) | (text, label) <- allBooks]
+  let labeledFeatures = mapMaybe (\(text, label) ->
+          fmap (\features -> (features, label)) (extractFeatures text)
+        ) allBooks
+    
 
   putStrLn "3. Berechne globale Normalisierungsstatistiken..."
-  let globalStats = calculateGlobalStats $ map fst labeledFeatures
+  let mGlobalStats = calculateGlobalStats $ map fst labeledFeatures
+  globalStats <- case mGlobalStats of
+    Just stats -> return stats
+    Nothing    -> error "Konnte keine globalen Statistikdaten berechnen"
 
   putStrLn "4. Initialisiere Trainingsdaten (Test-Split übersprungen)..."
   let trainingData =
