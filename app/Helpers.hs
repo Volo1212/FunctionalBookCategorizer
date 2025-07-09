@@ -76,7 +76,7 @@ calculateAvgCommasPerSentence sentences =
   in safeDiv totalCommas (L.length sentences)
 
 ---------------------------
--- STATISTICS ARE AWESOME BRO JUST SMILE PLEEEEEEASE
+-- STATISTICS 
 ---------------------------
 calculateMean :: [Double] -> Double
 calculateMean xs

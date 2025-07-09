@@ -44,6 +44,34 @@ testTextAnalysis = TestList
     , "multiple"   ~: getSentences (T.pack "First. Second.") ~?= [T.pack "First", T.pack " Second"]
     , "empty"      ~: getSentences (T.pack "") ~?= []
     ]
+  , "getWords" ~:
+    [ "simple" ~: getWords [T.pack "hello world", T.pack "BRO"] ~?= [[T.pack "hello", T.pack "world"], [T.pack "bro"]]
+    , "two empty strings" ~: getWords [T.pack "", T.pack ""] ~?= [[], []]
+    ]
+  , "calculateSentenceLengths" ~:
+    [ "simple case" ~:
+        calculateSentenceLengths [[T.pack "a", T.pack "b"], [T.pack "c"]] ~?= [2,1]
+    , "empty input" ~:
+        calculateSentenceLengths [] ~?= []
+    , "empty sentence" ~:
+        calculateSentenceLengths [[]] ~?= [0]
+    ]
+  , "calculateAvgSentenceLength" ~: 
+    [ "simple average" ~: calculateAvgSentenceLength [4,6] ~?= Just 5.0
+    , "empty list" ~: calculateAvgSentenceLength [] ~?= Nothing
+    ]
+  , "calculateSyllablesPerWord" ~:
+    [ "one word, three syllables" ~:
+        calculateSyllablesPerWord [[T.pack "banana"]] ~?= [3]
+    , "multiple words" ~:
+        calculateSyllablesPerWord [[T.pack "hello", T.pack "world"]] ~?= [2,1]
+    , "empty list" ~:
+        calculateSyllablesPerWord [] ~?= []
+    , "inner empty" ~:
+        calculateSyllablesPerWord [[]] ~?= []
+    , "punctuation stays" ~:
+        calculateSyllablesPerWord [[T.pack "wow!"]] ~?= [1]
+    ]
   ]
 
 testStatistics :: Test
@@ -62,17 +90,23 @@ testStatistics = TestList
     ]
   ]
 
+-- Integration test of extractFeature monad chain
+-- two cases since return type is maybe
 testCoreLogic :: Test
 testCoreLogic = TestList
-  [ "extractFeatures Integration Test" ~: TestCase $ do
-      let testText = T.pack "Ein einfacher Satz. Und noch ein Satz."
+  [ 
+    "extractFeatures Integration Test" ~: TestCase $ do
+      let testText = T.pack "Ein einfacher Satz. Und, noch ein Satz."
       case extractFeatures testText of
         Nothing -> assertFailure "Feature extraction failed unexpectedly."
         Just features -> do
           avgSentenceLength features ~?~ 3.5
-          avgWordLength features ~?~ 4.28
+          avgWordLength features ~?~ 4.428
+          uniqueWordRatio features ~?~ 0.714
+          fleschReadingEase features ~?~ 94.51
 
-  , "extractFeatures on Empty" ~: assertEqual "" Nothing (extractFeatures (T.pack ""))
+  , "extractFeatures on Empty" ~: assertEqual "" Nothing (extractFeatures (T.pack "......."))
+  , "extractFeatures on Periods" ~: assertEqual "" Nothing (extractFeatures (T.pack ""))
   ]
 --------------------------------------------------------------------------------
 -- QuickCheck Properties
@@ -101,6 +135,5 @@ prop_sigmoidIsBounded z = let s = sigmoid z in s >= 0.0 && s <= 1.0
 
 main :: IO ()
 main = do
-  putStrLn "\nRunning HUnit Tests..."
   _ <- runTestTT hunitTests
   quickCheckProperties
