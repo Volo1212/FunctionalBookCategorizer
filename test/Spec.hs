@@ -8,15 +8,16 @@ import qualified Data.List as L
 
 import Types
 import Helpers
-import CoreLogic 
+import CoreLogic
 
--- Operator für Double-Vergleiche
+-- Operator für Double-Vergleiche mit Toleranz
 (~?~) :: Double -> Double -> Assertion
 x ~?~ y = assertBool msg (abs (x - y) < epsilon)
   where
-    epsilon = 1e-2
+    epsilon = 1e-2 -- A slightly larger epsilon can be more robust for complex calculations
     msg = "Expected: " ++ show y ++ "\nBut got:  " ++ show x
 
+-- Haupt-Test-Suite
 hunitTests :: Test
 hunitTests = TestList
   [ "Text Analysis Functions" ~: testTextAnalysis
@@ -26,29 +27,29 @@ hunitTests = TestList
 
 testTextAnalysis :: Test
 testTextAnalysis = TestList
-  [ "countSyllablesInWord" ~:
+  [ 
+    "countSyllablesInWord" ~:
     [ "empty"         ~: countSyllablesInWord (T.pack "") ~?= 0
     , "simple"        ~: countSyllablesInWord (T.pack "haskell") ~?= 2
     , "complex"       ~: countSyllablesInWord (T.pack "monad") ~?= 2
     , "consecutive"   ~: countSyllablesInWord (T.pack "beautiful") ~?= 3
     , "no vowels"     ~: countSyllablesInWord (T.pack "rhythm") ~?= 1
     ]
-
-  , "calculateUniqueWordRatio" ~:
+    , "calculateUniqueWordRatio" ~:
     [ "all unique"    ~: assertEqual "" (Just 1.0) (calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "c"]])
     , "some repeated" ~: assertEqual "" (Just (2.0 / 3.0)) (calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "a"]])
     , "empty list"    ~: assertEqual "" Nothing (calculateUniqueWordRatio [])
     ]
-  , "getSentences" ~:
+    , "getSentences" ~:
     [ "no periods" ~: getSentences (T.pack "hello world") ~?= [T.pack "hello world"]
     , "multiple"   ~: getSentences (T.pack "First. Second.") ~?= [T.pack "First", T.pack " Second"]
     , "empty"      ~: getSentences (T.pack "") ~?= []
     ]
-  , "getWords" ~:
+    , "getWords" ~:
     [ "simple" ~: getWords [T.pack "hello world", T.pack "BRO"] ~?= [[T.pack "hello", T.pack "world"], [T.pack "bro"]]
     , "two empty strings" ~: getWords [T.pack "", T.pack ""] ~?= [[], []]
     ]
-  , "calculateSentenceLengths" ~:
+    , "calculateSentenceLengths" ~:
     [ "simple case" ~:
         calculateSentenceLengths [[T.pack "a", T.pack "b"], [T.pack "c"]] ~?= [2,1]
     , "empty input" ~:
@@ -56,11 +57,11 @@ testTextAnalysis = TestList
     , "empty sentence" ~:
         calculateSentenceLengths [[]] ~?= [0]
     ]
-  , "calculateAvgSentenceLength" ~: 
+    , "calculateAvgSentenceLength" ~: 
     [ "simple average" ~: calculateAvgSentenceLength [4,6] ~?= Just 5.0
     , "empty list" ~: calculateAvgSentenceLength [] ~?= Nothing
     ]
-  , "calculateSyllablesPerWord" ~:
+    , "calculateSyllablesPerWord" ~:
     [ "one word, three syllables" ~:
         calculateSyllablesPerWord [[T.pack "banana"]] ~?= [3]
     , "multiple words" ~:
@@ -81,12 +82,13 @@ testStatistics = TestList
     , "normal division"  ~: assertEqual "" (Just 2.5) (safeDiv 10 4)
     ]
   , "calculateMean" ~:
-    [ "simple list" ~: calculateMean [1, 2, 3, 4, 5] ~?= 3.0
-    , "empty list"  ~: calculateMean [] ~?= 0.0
+    [ "simple list" ~: calculateMean [1, 2, 3, 4, 5] ~?= Just 3.0
+    , "empty list"  ~: calculateMean [] ~?= Nothing
     ]
   , "calculateStdDev" ~:
-    [ "no deviation" ~: calculateStdDev 5.0 [5, 5, 5, 5] ~?= 0.0
-    , "single item"  ~: calculateStdDev 10.0 [10] ~?= 0.0
+    [ "no deviation" ~: calculateStdDev (Just 5.0) [5, 5, 5, 5] ~?= Just 0.0
+    , "single item"  ~: calculateStdDev (Just 10.0) [10] ~?= Just 0.0
+    , "no mean"      ~: calculateStdDev Nothing [1,2,3] ~?= Nothing
     ]
   ]
 
@@ -94,7 +96,7 @@ testStatistics = TestList
 -- two cases since return type is maybe
 testCoreLogic :: Test
 testCoreLogic = TestList
-  [ 
+  [
     "extractFeatures Integration Test" ~: TestCase $ do
       let testText = T.pack "Ein einfacher Satz. Und, noch ein Satz."
       case extractFeatures testText of
@@ -105,9 +107,10 @@ testCoreLogic = TestList
           uniqueWordRatio features ~?~ 0.714
           fleschReadingEase features ~?~ 94.51
 
-  , "extractFeatures on Empty" ~: assertEqual "" Nothing (extractFeatures (T.pack "......."))
-  , "extractFeatures on Periods" ~: assertEqual "" Nothing (extractFeatures (T.pack ""))
+    , "extractFeatures on Empty" ~: assertEqual "" Nothing (extractFeatures (T.pack ""))
+    , "extractFeatures on only periods" ~: assertEqual "" Nothing (extractFeatures (T.pack "......."))
   ]
+
 --------------------------------------------------------------------------------
 -- QuickCheck Properties
 --------------------------------------------------------------------------------
@@ -122,18 +125,24 @@ quickCheckProperties = do
 prop_meanOfIdenticalNumbersIsItself :: Double -> NonEmptyList Double -> Bool
 prop_meanOfIdenticalNumbersIsItself x (NonEmpty xs) =
   let list = replicate (length xs) x
-      mean = calculateMean list
-  in abs (mean - x) < 1e-9
+      maybeMean = calculateMean list
+  in case maybeMean of
+       Nothing -> False
+       Just mean -> abs (mean - x) < 1e-9
 
 prop_stdDevIsNonNegative :: [Double] -> Bool
 prop_stdDevIsNonNegative xs =
-  let m = calculateMean xs
-  in calculateStdDev m xs >= 0.0
+  let maybeMean = calculateMean xs
+      maybeStdDev = calculateStdDev maybeMean xs
+  in case maybeStdDev of
+       Nothing -> True
+       Just stdDev -> stdDev >= 0.0
 
 prop_sigmoidIsBounded :: Double -> Bool
 prop_sigmoidIsBounded z = let s = sigmoid z in s >= 0.0 && s <= 1.0
 
 main :: IO ()
 main = do
+  putStrLn "\nRunning HUnit Tests..."
   _ <- runTestTT hunitTests
   quickCheckProperties

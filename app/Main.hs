@@ -38,7 +38,7 @@ main :: IO ()
 main = do
   let learningRate = 0.1
       lambda = 0.01
-      epochs = 200
+      epochs = 1000
 
   putStrLn "Buchklassifizierungs-Modell v2"
   putStrLn "================================"
@@ -53,8 +53,8 @@ main = do
     error "Keine Bücher gefunden. Stelle sicher, dass 'books/children' und 'books/adults' .txt-Dateien enthalten."
   printf "   -> %d Bücher insgesamt geladen.\n" (length allBooks)
 
-  putStrLn "2. Extrahiere Features..."
   -- only keeps "Just" results all Nothing values are filtered out
+  putStrLn "2. Extrahiere Features..."
   let labeledFeatures = mapMaybe (\(text, label) ->
           fmap (\features -> (features, label)) (extractFeatures text)
         ) allBooks
@@ -65,7 +65,6 @@ main = do
   globalStats <- case mGlobalStats of
     Just stats -> return stats
     Nothing    -> error "Konnte keine globalen Statistikdaten berechnen"
-
 
   putStrLn "4. Initialisiere Trainingsdaten (Test-Split übersprungen)..."
   let trainingData =
