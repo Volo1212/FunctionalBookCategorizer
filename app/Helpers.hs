@@ -78,16 +78,16 @@ calculateAvgCommasPerSentence sentences =
 ---------------------------
 -- STATISTICS 
 ---------------------------
-calculateMean :: [Double] -> Double
+calculateMean :: [Double] -> Maybe Double
 calculateMean xs
-  | null xs = 0.0
-  | otherwise = L.sum xs / fromIntegral (L.length xs)
+  | null xs = Nothing
+  | otherwise = Just $ L.sum xs / fromIntegral (L.length xs)
 
 -- square root of the variance, mean val is need obviously like duh
-calculateStdDev :: Double -> [Double] -> Double
-calculateStdDev meanVal xs
-  | null xs = 0.0
-  | otherwise = sqrt $ L.sum (L.map (\x -> (x - meanVal) ^ 2) xs) / fromIntegral (L.length xs)
+calculateStdDev :: Maybe Double -> [Double] -> Maybe Double
+calculateStdDev Nothing _ = Nothing -- if there is no mean there is no std devf
+calculateStdDev _ [] = Just 0.0      -- deviation of empty list is 0.0
+calculateStdDev (Just meanVal) xs = Just $ sqrt $ L.sum (L.map (\x -> (x - meanVal) ^ 2) xs) / fromIntegral (L.length xs)
 
 -- mathemtical formula standardization of a value: 
 -- value minus mean of that value divided by standard deviation

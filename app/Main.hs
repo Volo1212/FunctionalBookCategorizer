@@ -61,7 +61,11 @@ main = do
     
 
   putStrLn "3. Berechne globale Normalisierungsstatistiken..."
-  let globalStats = calculateGlobalStats $ map fst labeledFeatures
+  let mGlobalStats = calculateGlobalStats $ map fst labeledFeatures
+  globalStats <- case mGlobalStats of
+    Just stats -> return stats
+    Nothing    -> error "Konnte keine globalen Statistikdaten berechnen"
+
 
   putStrLn "4. Initialisiere Trainingsdaten (Test-Split übersprungen)..."
   let trainingData =

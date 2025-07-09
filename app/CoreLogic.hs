@@ -28,8 +28,9 @@ extractFeatures text = do
 
     let fleschScore = calculateFleschScore avgSentLen avgSyllables
     let sentenceLengthsD = map fromIntegral sentenceLengths
-    let sentLenMean = calculateMean sentenceLengthsD
-    let sentLenStdDev = calculateStdDev sentLenMean sentenceLengthsD
+    
+    sentLenMean <- calculateMean sentenceLengthsD
+    sentLenStdDev <- calculateStdDev (Just sentLenMean) sentenceLengthsD
 
     return BookFeatures
         { avgSentenceLength = avgSentLen
@@ -41,22 +42,28 @@ extractFeatures text = do
         , avgCommasPerSentence = avgCommas
         }
 
-calculateFeatureStats :: [Double] -> FeatureStats
-calculateFeatureStats xs =
-  let m = calculateMean xs
-      s = calculateStdDev m xs
-  in FeatureStats {mean = m, stdDev = s}
-
+calculateFeatureStats :: [Double] -> Maybe FeatureStats
+calculateFeatureStats xs = do
+  m <- calculateMean xs
+  s <- calculateStdDev (Just m) xs
+  return FeatureStats {mean = m, stdDev = s}
+  
 -- for a category of books, or for all books depending on usage
-calculateGlobalStats :: [BookFeatures] -> CategoryStats
-calculateGlobalStats features =
-  CategoryStats
-    { sentLengthStats = calculateFeatureStats $ L.map avgSentenceLength features
-    , wordLengthStats = calculateFeatureStats $ L.map avgWordLength features
-    , fleschStats = calculateFeatureStats $ L.map fleschReadingEase features
-    , uwrStats = calculateFeatureStats $ L.map uniqueWordRatio features
-    , sentLengthStdDevStats = calculateFeatureStats $ L.map sentenceLengthStdDev features
-    , commasStats = calculateFeatureStats $ L.map avgCommasPerSentence features
+calculateGlobalStats :: [BookFeatures] -> Maybe CategoryStats
+calculateGlobalStats features = do
+  sentLengthStats' <- calculateFeatureStats $ L.map avgSentenceLength features
+  wordLengthStats' <- calculateFeatureStats $ L.map avgWordLength features
+  fleschStats'     <- calculateFeatureStats $ L.map fleschReadingEase features
+  uwrStats'        <- calculateFeatureStats $ L.map uniqueWordRatio features
+  sentLengthStdDevStats' <- calculateFeatureStats $ L.map sentenceLengthStdDev features
+  commasStats'     <- calculateFeatureStats $ L.map avgCommasPerSentence features
+  return CategoryStats
+    { sentLengthStats = sentLengthStats'
+    , wordLengthStats = wordLengthStats'
+    , fleschStats = fleschStats'
+    , uwrStats = uwrStats'
+    , sentLengthStdDevStats = sentLengthStdDevStats'
+    , commasStats = commasStats'
     }
 
 normalizeFeatures :: BookFeatures -> CategoryStats -> [Double]
