@@ -7,38 +7,39 @@ import qualified Data.Text as T
 import           Types
 import           Helpers
 
--- TODO: refactor this into smaller chunks
 -- the function is not complicated its jut a little bit big
 -- basically it calculates all metrics for every book 
 -- for some of them that means we need std deviation and mean
-extractFeatures :: T.Text -> BookFeatures
-extractFeatures text =
-  let sentences = getSentences text
-      wordLists = getWords sentences
+-- NOTE: if sth cant be extracted, it aborts
+-- the monad chain to not manipulate the end result of all features in a wrong fashion
+extractFeatures :: T.Text -> Maybe BookFeatures
+extractFeatures text = do
+    let sentences = getSentences text
+    let wordLists = getWords sentences
+    let sentenceLengths = calculateSentenceLengths wordLists
+    let wordLengths = calculateWordLengths wordLists
+    let syllablesPerWord = calculateSyllablesPerWord wordLists
 
-      sentenceLengths = calculateSentenceLengths wordLists
-      sentenceLengthsD = map fromIntegral sentenceLengths
+    avgSentLen <- calculateAvgSentenceLength sentenceLengths
+    avgWordLen <- calculateAvgWordLength wordLengths
+    avgSyllables <- calculateAvgSyllablesPerWord syllablesPerWord
+    uwr <- calculateUniqueWordRatio wordLists
+    avgCommas <- calculateAvgCommasPerSentence sentences
 
-      avgSentLen = calculateAvgSentenceLength sentenceLengths
-      sentLenMean = calculateMean sentenceLengthsD
-      sentLenStdDev = calculateStdDev sentLenMean sentenceLengthsD
-      wordLengths = calculateWordLengths wordLists
-      avgWordLen = calculateAvgWordLength wordLengths
-      syllablesPerWord = calculateSyllablesPerWord wordLists
-      avgSyllables = calculateAvgSyllablesPerWord syllablesPerWord
+    let fleschScore = calculateFleschScore avgSentLen avgSyllables
+    let sentenceLengthsD = map fromIntegral sentenceLengths
+    let sentLenMean = calculateMean sentenceLengthsD
+    let sentLenStdDev = calculateStdDev sentLenMean sentenceLengthsD
 
-      fleschScore = calculateFleschScore avgSentLen avgSyllables
-      uwr = calculateUniqueWordRatio wordLists
-      avgCommas = calculateAvgCommasPerSentence sentences
-  in BookFeatures
-       { avgSentenceLength = avgSentLen
-       , avgWordLength = avgWordLen
-       , fleschReadingEase = fleschScore
-       , avgSyllablesPerWord = avgSyllables
-       , uniqueWordRatio = uwr
-       , sentenceLengthStdDev = sentLenStdDev
-       , avgCommasPerSentence = avgCommas
-       }
+    return BookFeatures
+        { avgSentenceLength = avgSentLen
+        , avgWordLength = avgWordLen
+        , fleschReadingEase = fleschScore
+        , avgSyllablesPerWord = avgSyllables
+        , uniqueWordRatio = uwr
+        , sentenceLengthStdDev = sentLenStdDev
+        , avgCommasPerSentence = avgCommas
+        }
 
 calculateFeatureStats :: [Double] -> FeatureStats
 calculateFeatureStats xs =

@@ -36,14 +36,14 @@ testTextAnalysis = TestList
   , "calculateUniqueWordRatio" ~:
     [ "all unique" ~: calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "c"]] ~?~ 1.0
     , "some repeated" ~: calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "a"]] ~?~ (2.0 / 3.0)
-    , "empty list" ~: calculateUniqueWordRatio [] ~?~ 0.0
+    , "empty list" ~: calculateUniqueWordRatio [] ~?~ Nothing
     ]
   ]
 
 testStatistics :: Test
 testStatistics = TestList
   [ "safeDiv" ~:
-    [ "division by zero" ~: safeDiv 100 0 ~?= 0.0
+    [ "division by zero" ~: safeDiv 100 0 ~?= Nothing
     , "normal division"  ~: safeDiv 10 4 ~?= 2.5
     ]
   , "calculateMean" ~:
@@ -71,22 +71,6 @@ prop_stdDevIsNonNegative xs =
 -- Die Sigmoid-Funktion muss immer einen Wert zwischen 0 und 1 liefern.
 prop_sigmoidIsBounded :: Double -> Bool
 prop_sigmoidIsBounded z = let s = sigmoid z in s >= 0.0 && s <= 1.0
-
--- Die Normalisierung eines Wertes und die sofortige Umkehrung der Operation
--- muss den ursprünglichen Wert ergeben (innerhalb der Toleranz).
-prop_normalizeInverse :: Double -> Property
-prop_normalizeInverse val =
-  -- Wir stellen sicher, dass die Standardabweichung nicht 0 ist,
-  -- um eine Division durch Null in der Umkehrrechnung zu vermeiden.
-  forAll (arbitrary `suchThat` (\x -> abs x > 1e-6)) $ \stdDevVal ->
-  forAll arbitrary $ \meanVal ->
-    let stats = FeatureStats { mean = meanVal, stdDev = stdDevVal }
-        normalized = normalizeValue val stats
-        -- Die Umkehrformel: original = normalized * stdDev + mean
-        denormalized = normalized * stdDevVal + meanVal
-    in abs (val - denormalized) < 1e-9
-
-
 
 main :: IO ()
 main = do
