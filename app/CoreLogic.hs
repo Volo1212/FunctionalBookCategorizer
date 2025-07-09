@@ -64,27 +64,28 @@ calculateGlobalStats features = do
     , commasStats = commasStats'
     }
 
-normalizeFeatures :: BookFeatures -> CategoryStats -> [Double]
+normalizeFeatures :: BookFeatures -> CategoryStats -> NormalizedFeatures
 normalizeFeatures features stats =
-  [ normalizeValue (avgSentenceLength features) (sentLengthStats stats)
-  , normalizeValue (avgWordLength features) (wordLengthStats stats)
-  , normalizeValue (fleschReadingEase features) (fleschStats stats)
-  , normalizeValue (uniqueWordRatio features) (uwrStats stats)
-  , normalizeValue (sentenceLengthStdDev features) (sentLengthStdDevStats stats)
-  , normalizeValue (avgCommasPerSentence features) (commasStats stats)
-  ]
+  NormalizedFeatures
+    { nfAvgSentenceLength = normalizeValue (avgSentenceLength features) (sentLengthStats stats)
+    , nfAvgWordLength     = normalizeValue (avgWordLength features) (wordLengthStats stats)
+    , nfFleschReadingEase = normalizeValue (fleschReadingEase features) (fleschStats stats)
+    , nfUniqueWordRatio   = normalizeValue (uniqueWordRatio features) (uwrStats stats)
+    , nfSentLengthStdDev  = normalizeValue (sentenceLengthStdDev features) (sentLengthStdDevStats stats)
+    , nfAvgCommasPerSentence = normalizeValue (avgCommasPerSentence features) (commasStats stats)
+    }
 
 -- predict the probability of a book to be rather child or parent
 -- returns a val between 0 and 1, if its > 0.5 its an Adult else Children prediction
 -- this is NOT the function used to CLASSIFY, its used for TRAINING only 
-predict :: Weights -> [Double] -> Double
+predict :: Weights -> NormalizedFeatures -> Double
 predict weights features =
-  let z = (wSentenceLength weights * features !! 0) +
-          (wWordLength weights * features !! 1) +
-          (wFlesch weights * features !! 2) +
-          (wUniqueWordRatio weights * features !! 3) +
-          (wSentLengthStdDev weights * features !! 4) +
-          (wCommasPerSentence weights * features !! 5) +
+  let z = (wSentenceLength weights * nfAvgSentenceLength features) +
+          (wWordLength weights * nfAvgWordLength features) +
+          (wFlesch weights * nfFleschReadingEase features) +
+          (wUniqueWordRatio weights * nfUniqueWordRatio features) +
+          (wSentLengthStdDev weights * nfSentLengthStdDev features) +
+          (wCommasPerSentence weights * nfAvgCommasPerSentence features) +
           bias weights
   in sigmoid z
 
@@ -95,17 +96,17 @@ predict weights features =
 -- IMPORTANT: the gradient points into the direction of the BIGGEST LOSS (steepest increase)
 -- WE WANT TO GO IN THE OPPOSITE DIRECTION when we update weights so we get the BIGGEST WIN
 -- DERIVATION OF LOSS FUNCTION: (prediction - real) * w_j -> for every weight
-calculateGradient :: Weights -> ([Double], Double) -> Weights
+calculateGradient :: Weights -> (NormalizedFeatures, Double) -> Weights
 calculateGradient weights (features, expectedResult) =
   let prediction = predict weights features
       error' = prediction - expectedResult
   in Weights
-       { wSentenceLength = error' * (features !! 0)
-       , wWordLength = error' * (features !! 1)
-       , wFlesch = error' * (features !! 2)
-       , wUniqueWordRatio = error' * (features !! 3)
-       , wSentLengthStdDev = error' * (features !! 4)
-       , wCommasPerSentence = error' * (features !! 5)
+       { wSentenceLength = error' * nfAvgSentenceLength features
+       , wWordLength = error' * nfAvgWordLength features
+       , wFlesch = error' * nfFleschReadingEase features
+       , wUniqueWordRatio = error' * nfUniqueWordRatio features
+       , wSentLengthStdDev = error' * nfSentLengthStdDev features
+       , wCommasPerSentence = error' * nfAvgCommasPerSentence features
        , bias = error'
        }
 
@@ -138,7 +139,7 @@ averageGradientComponent metric grads n =
 -- Trains model for one epoch (one full pass over training data).
 -- Averages gradients over all training examples (batch gradient descent).
 -- Then applies weight updates based on the averaged gradients.
-trainSingleEpoch :: Double -> Double -> [([Double], Double)] -> Weights -> Weights
+trainSingleEpoch :: Double -> Double -> [(NormalizedFeatures, Double)] -> Weights -> Weights
 trainSingleEpoch learningRate lambda trainingData currentWeights =
   let gradients = L.map (calculateGradient currentWeights) trainingData
       numSamples = fromIntegral $ L.length trainingData
@@ -157,7 +158,7 @@ trainSingleEpoch learningRate lambda trainingData currentWeights =
 -- At each epoch, performs one weight-list update using `trainSingleEpoch`.
 -- NOTE: note that \w is not a single weight, its the current weight list we train more and more
 -- and this is being done on the initialWeights, originally, and for epochs times
-trainModel :: Double -> Double -> Int -> [([Double], Double)] -> Weights -> Weights
+trainModel :: Double -> Double -> Int -> [(NormalizedFeatures, Double)] -> Weights -> Weights
 trainModel learningRate lambda epochs trainingData initialWeights =
   L.foldl' (\w _ -> trainSingleEpoch learningRate lambda trainingData w) initialWeights [1 .. epochs]
 
