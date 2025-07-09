@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE StrictData #-}
 
 module Types
   ( Classification(..)
@@ -6,6 +7,7 @@ module Types
   , Weights(..)
   , FeatureStats(..)
   , CategoryStats(..)
+  , NormalizedFeatures(..)
   ) where
 
 -- end result 
@@ -23,6 +25,16 @@ data BookFeatures = BookFeatures
   , uniqueWordRatio      :: !Double
   , sentenceLengthStdDev :: !Double
   , avgCommasPerSentence :: !Double
+  } deriving (Eq, Show)
+
+-- represents the metrics of BookFeatures in standardized fashiln (see z standardisation)
+data NormalizedFeatures = NormalizedFeatures
+  { nfAvgSentenceLength :: !Double
+  , nfAvgWordLength     :: !Double
+  , nfFleschReadingEase :: !Double
+  , nfUniqueWordRatio   :: !Double
+  , nfSentLengthStdDev  :: !Double
+  , nfAvgCommasPerSentence :: !Double
   } deriving (Show)
 
 -- calculated weights of gradient descent, starting with initial values

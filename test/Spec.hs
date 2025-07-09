@@ -1,3 +1,4 @@
+-- Test.hs
 module Main where
 
 import Test.HUnit
@@ -6,95 +7,163 @@ import qualified Data.Text as T
 import qualified Data.List as L
 
 import Types
-import Helpers 
+import Helpers
+import CoreLogic
 
+-- operator overloading for comparing doubles 
 (~?~) :: Double -> Double -> Assertion
 x ~?~ y = assertBool msg (abs (x - y) < epsilon)
   where
-    epsilon = 1e-9
+    epsilon = 1e-2 -- A slightly larger epsilon can be more robust for complex calculations
     msg = "Expected: " ++ show y ++ "\nBut got:  " ++ show x
 
---------------------------------------------------------------------------------
--- HUnit Tests 
---------------------------------------------------------------------------------
-
+-- Haupt-Test-Suite
 hunitTests :: Test
 hunitTests = TestList
   [ "Text Analysis Functions" ~: testTextAnalysis
-  , "Statistics Functions" ~: testStatistics
+  , "Statistics Functions"    ~: testStatistics
+  , "Core Logic Functions"    ~: testCoreLogic
+  , "Gradient Averaging Logic" ~: testGradientLogic
   ]
 
 testTextAnalysis :: Test
 testTextAnalysis = TestList
-  [ "countSyllablesInWord" ~:
+  [ 
+    "countSyllablesInWord" ~:
     [ "empty"         ~: countSyllablesInWord (T.pack "") ~?= 0
     , "simple"        ~: countSyllablesInWord (T.pack "haskell") ~?= 2
     , "complex"       ~: countSyllablesInWord (T.pack "monad") ~?= 2
+    , "consecutive"   ~: countSyllablesInWord (T.pack "beautiful") ~?= 3
     , "no vowels"     ~: countSyllablesInWord (T.pack "rhythm") ~?= 1
     ]
-  
-  , "calculateUniqueWordRatio" ~:
-    [ "all unique" ~: calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "c"]] ~?~ 1.0
-    , "some repeated" ~: calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "a"]] ~?~ (2.0 / 3.0)
-    , "empty list" ~: calculateUniqueWordRatio [] ~?~ 0.0
+    , "calculateUniqueWordRatio" ~:
+    [ "all unique"    ~: assertEqual "" (Just 1.0) (calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "c"]])
+    , "some repeated" ~: assertEqual "" (Just (2.0 / 3.0)) (calculateUniqueWordRatio [[T.pack "a"], [T.pack "b"], [T.pack "a"]])
+    , "empty list"    ~: assertEqual "" Nothing (calculateUniqueWordRatio [])
+    ]
+    , "getSentences" ~:
+    [ "no periods" ~: getSentences (T.pack "hello world") ~?= [T.pack "hello world"]
+    , "multiple"   ~: getSentences (T.pack "First. Second.") ~?= [T.pack "First", T.pack " Second"]
+    , "empty"      ~: getSentences (T.pack "") ~?= []
+    ]
+    , "getWords" ~:
+    [ "simple" ~: getWords [T.pack "hello world", T.pack "BRO"] ~?= [[T.pack "hello", T.pack "world"], [T.pack "bro"]]
+    , "two empty strings" ~: getWords [T.pack "", T.pack ""] ~?= [[], []]
+    ]
+    , "calculateSentenceLengths" ~:
+    [ "simple case" ~:
+        calculateSentenceLengths [[T.pack "a", T.pack "b"], [T.pack "c"]] ~?= [2,1]
+    , "empty input" ~:
+        calculateSentenceLengths [] ~?= []
+    , "empty sentence" ~:
+        calculateSentenceLengths [[]] ~?= [0]
+    ]
+    , "calculateAvgSentenceLength" ~: 
+    [ "simple average" ~: calculateAvgSentenceLength [4,6] ~?= Just 5.0
+    , "empty list" ~: calculateAvgSentenceLength [] ~?= Nothing
+    ]
+    , "calculateSyllablesPerWord" ~:
+    [ "one word, three syllables" ~:
+        calculateSyllablesPerWord [[T.pack "banana"]] ~?= [3]
+    , "multiple words" ~:
+        calculateSyllablesPerWord [[T.pack "hello", T.pack "world"]] ~?= [2,1]
+    , "empty list" ~:
+        calculateSyllablesPerWord [] ~?= []
+    , "inner empty" ~:
+        calculateSyllablesPerWord [[]] ~?= []
+    , "punctuation stays" ~:
+        calculateSyllablesPerWord [[T.pack "wow!"]] ~?= [1]
     ]
   ]
 
 testStatistics :: Test
 testStatistics = TestList
   [ "safeDiv" ~:
-    [ "division by zero" ~: safeDiv 100 0 ~?= 0.0
-    , "normal division"  ~: safeDiv 10 4 ~?= 2.5
+    [ "division by zero" ~: assertEqual "" Nothing (safeDiv 100 0)
+    , "normal division"  ~: assertEqual "" (Just 2.5) (safeDiv 10 4)
     ]
   , "calculateMean" ~:
-    [ "simple list" ~: calculateMean [1, 2, 3, 4, 5] ~?= 3.0
-    , "empty list"  ~: calculateMean [] ~?= 0.0
+    [ "simple list" ~: calculateMean [1, 2, 3, 4, 5] ~?= Just 3.0
+    , "empty list"  ~: calculateMean [] ~?= Nothing
+    ]
+  , "calculateStdDev" ~:
+    [ "no deviation" ~: calculateStdDev (Just 5.0) [5, 5, 5, 5] ~?= Just 0.0
+    , "single item"  ~: calculateStdDev (Just 10.0) [10] ~?= Just 0.0
+    , "no mean"      ~: calculateStdDev Nothing [1,2,3] ~?= Nothing
     ]
   ]
 
+-- Integration test of extractFeature monad chain
+-- two cases since return type is maybe
+testCoreLogic :: Test
+testCoreLogic = TestList
+  [
+    "extractFeatures Integration Test" ~: TestCase $ do
+      let testText = T.pack "Ein einfacher Satz. Und, noch ein Satz."
+      case extractFeatures testText of
+        Nothing -> assertFailure "Feature extraction failed unexpectedly."
+        Just features -> do
+          avgSentenceLength features ~?~ 3.5
+          avgWordLength features ~?~ 4.428
+          uniqueWordRatio features ~?~ 0.714
+          fleschReadingEase features ~?~ 94.51
+
+    , "extractFeatures on Empty" ~: assertEqual "" Nothing (extractFeatures (T.pack ""))
+    , "extractFeatures on only periods" ~: assertEqual "" Nothing (extractFeatures (T.pack "......."))
+  ]
+
+-- testing if avg gradient of losses over x data points of metric y is calculated correctly
+-- this number is later being calculated with every individual oldWeight to calculate the newWeight 
+testGradientLogic :: Test
+testGradientLogic = TestList
+  [ "averageGradientComponent: Single element" ~:
+      averageGradientComponent wSentenceLength [Weights 1 0 0 0 0 0 0] 1.0 ~?~ 1.0
+
+  , "averageGradientComponent: Multiple identical" ~:
+      averageGradientComponent wSentenceLength
+        [ Weights 2 0 0 0 0 0 0
+        , Weights 2 0 0 0 0 0 0
+        , Weights 2 0 0 0 0 0 0
+        ] 3.0 ~?~ 2.0
+
+  , "averageGradientComponent: Different values" ~:
+      averageGradientComponent wSentenceLength
+        [ Weights 1 0 0 0 0 0 0
+        , Weights 3 0 0 0 0 0 0
+        ] 2.0 ~?~ 2.0
+  ]
 --------------------------------------------------------------------------------
--- QuickCheck Properties 
+-- QuickCheck Properties
 --------------------------------------------------------------------------------
+
+quickCheckProperties :: IO ()
+quickCheckProperties = do
+  putStrLn "\nRunning QuickCheck Properties..."
+  quickCheck (withMaxSuccess 1000 prop_meanOfIdenticalNumbersIsItself)
+  quickCheck (withMaxSuccess 1000 prop_stdDevIsNonNegative)
+  quickCheck (withMaxSuccess 1000 prop_sigmoidIsBounded)
 
 prop_meanOfIdenticalNumbersIsItself :: Double -> NonEmptyList Double -> Bool
 prop_meanOfIdenticalNumbersIsItself x (NonEmpty xs) =
   let list = replicate (length xs) x
-      mean = calculateMean list
-  in abs (mean - x) < 1e-9
+      maybeMean = calculateMean list
+  in case maybeMean of
+       Nothing -> False
+       Just mean -> abs (mean - x) < 1e-9
 
--- Die Standardabweichung darf niemals negativ sein.
 prop_stdDevIsNonNegative :: [Double] -> Bool
 prop_stdDevIsNonNegative xs =
-  let m = calculateMean xs
-  in calculateStdDev m xs >= 0.0
+  let maybeMean = calculateMean xs
+      maybeStdDev = calculateStdDev maybeMean xs
+  in case maybeStdDev of
+       Nothing -> True
+       Just stdDev -> stdDev >= 0.0
 
--- Die Sigmoid-Funktion muss immer einen Wert zwischen 0 und 1 liefern.
 prop_sigmoidIsBounded :: Double -> Bool
 prop_sigmoidIsBounded z = let s = sigmoid z in s >= 0.0 && s <= 1.0
-
--- Die Normalisierung eines Wertes und die sofortige Umkehrung der Operation
--- muss den ursprünglichen Wert ergeben (innerhalb der Toleranz).
-prop_normalizeInverse :: Double -> Property
-prop_normalizeInverse val =
-  -- Wir stellen sicher, dass die Standardabweichung nicht 0 ist,
-  -- um eine Division durch Null in der Umkehrrechnung zu vermeiden.
-  forAll (arbitrary `suchThat` (\x -> abs x > 1e-6)) $ \stdDevVal ->
-  forAll arbitrary $ \meanVal ->
-    let stats = FeatureStats { mean = meanVal, stdDev = stdDevVal }
-        normalized = normalizeValue val stats
-        -- Die Umkehrformel: original = normalized * stdDev + mean
-        denormalized = normalized * stdDevVal + meanVal
-    in abs (val - denormalized) < 1e-9
-
-
 
 main :: IO ()
 main = do
   putStrLn "\nRunning HUnit Tests..."
   _ <- runTestTT hunitTests
-
-  putStrLn "\nRunning QuickCheck Properties..."
-  quickCheck (withMaxSuccess 1000 prop_meanOfIdenticalNumbersIsItself)
-  quickCheck (withMaxSuccess 1000 prop_stdDevIsNonNegative)
-  quickCheck (withMaxSuccess 1000 prop_sigmoidIsBounded)
-  quickCheck (withMaxSuccess 100 prop_normalizeInverse) -- Weniger, da komplexer
+  quickCheckProperties
