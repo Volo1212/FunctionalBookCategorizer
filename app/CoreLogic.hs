@@ -99,6 +99,14 @@ predict weights features =
 calculateGradient :: Weights -> ([Double], Double) -> Weights
 calculateGradient weights (features, expectedResult) =
   let prediction = predict weights features
+
+    --   weight = if expectedResult == 0.0 -- Children
+    --             then 1.5 -- Höheres Gewicht für die Minderheitsklasse
+    --             else 1.0 -- Geringeres Gewicht für die Mehrheitsklasse
+
+    -- -- Der Fehler wird jetzt mit dem Gewicht multipliziert.
+    --   error' = weight * (prediction - expectedResult)
+
       error' = prediction - expectedResult
   in Weights
        { wSentenceLength = error' * (features !! 0)

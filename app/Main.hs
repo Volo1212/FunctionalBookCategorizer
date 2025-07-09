@@ -43,7 +43,7 @@ main :: IO ()
 main = do
   let learningRate = 0.1
       lambda = 0.01
-      epochs = 4000
+      epochs = 800
 
   putStrLn "Buchklassifizierungs-Modell v2"
   putStrLn "================================"
