@@ -1,8 +1,6 @@
 module CoreLogic where
 
-import qualified Data.Char as C
 import qualified Data.List as L
-import qualified Data.Set  as Set
 import qualified Data.Text as T
 import           Types
 import           Helpers
@@ -96,10 +94,10 @@ predict weights features =
 -- the more the prediction suggests its a child it will be closer to 0 and vice 
 -- IMPORTANT: the gradient points into the direction of the BIGGEST LOSS (steepest increase)
 -- WE WANT TO GO IN THE OPPOSITE DIRECTION when we update weights so we get the BIGGEST WIN
+-- DERIVATION OF LOSS FUNCTION: (prediction - real) * w_j -> for every weight
 calculateGradient :: Weights -> ([Double], Double) -> Weights
 calculateGradient weights (features, expectedResult) =
   let prediction = predict weights features
-
       error' = prediction - expectedResult
   in Weights
        { wSentenceLength = error' * (features !! 0)
@@ -115,39 +113,27 @@ updateSingleWeight :: Double -> Double -> Double -> Double -> Double
 updateSingleWeight oldWeight learningRate lambda avgGradWeight =
   oldWeight - learningRate * (avgGradWeight + lambda * oldWeight)
 
-
--- updateWeights :: Weights -> Weights -> Double -> Double -> Weights
--- updateWeights oldWeights avgGrad learningRate lambda =
---   Weights
---     { wSentenceLength = updateSingleWeight (wSentenceLength oldWeights) learningRate lambda (wSentenceLength avgGrad)
---     , wWordLength = updateSingleWeight (wWordLength oldWeights) learningRate lambda (wWordLength avgGrad)
---     , wFlesch = updateSingleWeight (wFlesch oldWeights) learningRate lambda (wFlesch avgGrad)
---     , wUniqueWordRatio = updateSingleWeight (wUniqueWordRatio oldWeights) learningRate lambda (wUniqueWordRatio avgGrad)
---     , wSentLengthStdDev = updateSingleWeight (wSentLengthStdDev oldWeights) learningRate lambda (wSentLengthStdDev avgGrad)
---     , wCommasPerSentence = updateSingleWeight (wCommasPerSentence oldWeights) learningRate lambda (wCommasPerSentence avgGrad)
---     , bias = bias oldWeights - learningRate * bias avgGrad -- no L2 regularization on bias
---     }
-    
 -- Updates weights using gradient descent with L2 regularization (to prevent waaay too big weights)
 -- learningRate controls step size, basically movement speed (are you a snake or a cheetah? XD).
 -- lambda is the regularization strength.
 -- Each weight is updated as: w := w - learning * (grad + regularization * w)
+-- L2 to punish too big weights
 updateWeights :: Weights -> Weights -> Double -> Double -> Weights
 updateWeights oldWeights avgGrad learningRate lambda =
   Weights
-    { wSentenceLength = wSentenceLength oldWeights - learningRate * (wSentenceLength avgGrad + lambda * wSentenceLength oldWeights)
-    , wWordLength = wWordLength oldWeights - learningRate * (wWordLength avgGrad + lambda * wWordLength oldWeights)
-    , wFlesch = wFlesch oldWeights - learningRate * (wFlesch avgGrad + lambda * wFlesch oldWeights)
-    , wUniqueWordRatio = wUniqueWordRatio oldWeights - learningRate * (wUniqueWordRatio avgGrad + lambda * wUniqueWordRatio oldWeights)
-    , wSentLengthStdDev = wSentLengthStdDev oldWeights - learningRate * (wSentLengthStdDev avgGrad + lambda * wSentLengthStdDev oldWeights)
-    , wCommasPerSentence = wCommasPerSentence oldWeights - learningRate * (wCommasPerSentence avgGrad + lambda * wCommasPerSentence oldWeights)
-    , bias = bias oldWeights - learningRate * bias avgGrad
+    { wSentenceLength = updateSingleWeight (wSentenceLength oldWeights) learningRate lambda (wSentenceLength avgGrad)
+    , wWordLength = updateSingleWeight (wWordLength oldWeights) learningRate lambda (wWordLength avgGrad)
+    , wFlesch = updateSingleWeight (wFlesch oldWeights) learningRate lambda (wFlesch avgGrad)
+    , wUniqueWordRatio = updateSingleWeight (wUniqueWordRatio oldWeights) learningRate lambda (wUniqueWordRatio avgGrad)
+    , wSentLengthStdDev = updateSingleWeight (wSentLengthStdDev oldWeights) learningRate lambda (wSentLengthStdDev avgGrad)
+    , wCommasPerSentence = updateSingleWeight (wCommasPerSentence oldWeights) learningRate lambda (wCommasPerSentence avgGrad)
+    , bias = bias oldWeights - learningRate * bias avgGrad -- no L2 regularization on bias
     }
 
 -- batch gradient descent which takes all numSamples into account (more stable but slower than on less)
--- averageGradientComponent :: (Weights -> Double) -> [Weights] -> Double -> Double
--- averageGradientComponent accessor grads n =
---   L.sum (L.map accessor grads) / n
+averageGradientComponent :: (Weights -> Double) -> [Weights] -> Double -> Double
+averageGradientComponent metric grads n =
+  L.sum (L.map metric grads) / n
 
 -- Trains model for one epoch (one full pass over training data).
 -- Averages gradients over all training examples (batch gradient descent).
@@ -156,16 +142,15 @@ trainSingleEpoch :: Double -> Double -> [([Double], Double)] -> Weights -> Weigh
 trainSingleEpoch learningRate lambda trainingData currentWeights =
   let gradients = L.map (calculateGradient currentWeights) trainingData
       numSamples = fromIntegral $ L.length trainingData
-      avgGrad =
-        Weights
-          { wSentenceLength = L.sum (L.map wSentenceLength gradients) / numSamples
-          , wWordLength = L.sum (L.map wWordLength gradients) / numSamples
-          , wFlesch = L.sum (L.map wFlesch gradients) / numSamples
-          , wUniqueWordRatio = L.sum (L.map wUniqueWordRatio gradients) / numSamples
-          , wSentLengthStdDev = L.sum (L.map wSentLengthStdDev gradients) / numSamples
-          , wCommasPerSentence = L.sum (L.map wCommasPerSentence gradients) / numSamples
-          , bias = L.sum (L.map bias gradients) / numSamples
-          }
+      avgGrad = Weights
+              { wSentenceLength     = averageGradientComponent wSentenceLength gradients numSamples
+              , wWordLength         = averageGradientComponent wWordLength gradients numSamples
+              , wFlesch             = averageGradientComponent wFlesch gradients numSamples
+              , wUniqueWordRatio    = averageGradientComponent wUniqueWordRatio gradients numSamples
+              , wSentLengthStdDev   = averageGradientComponent wSentLengthStdDev gradients numSamples
+              , wCommasPerSentence  = averageGradientComponent wCommasPerSentence gradients numSamples
+              , bias                = averageGradientComponent bias gradients numSamples
+              }
   in updateWeights currentWeights avgGrad learningRate lambda
 
 -- Repeatedly trains the model for a given number of epochs.

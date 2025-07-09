@@ -10,7 +10,7 @@ import Types
 import Helpers
 import CoreLogic
 
--- Operator für Double-Vergleiche mit Toleranz
+-- operator overloading for comparing doubles 
 (~?~) :: Double -> Double -> Assertion
 x ~?~ y = assertBool msg (abs (x - y) < epsilon)
   where
@@ -23,6 +23,7 @@ hunitTests = TestList
   [ "Text Analysis Functions" ~: testTextAnalysis
   , "Statistics Functions"    ~: testStatistics
   , "Core Logic Functions"    ~: testCoreLogic
+  , "Gradient Averaging Logic" ~: testGradientLogic
   ]
 
 testTextAnalysis :: Test
@@ -111,6 +112,26 @@ testCoreLogic = TestList
     , "extractFeatures on only periods" ~: assertEqual "" Nothing (extractFeatures (T.pack "......."))
   ]
 
+-- testing if avg gradient of losses over x data points of metric y is calculated correctly
+-- this number is later being calculated with every individual oldWeight to calculate the newWeight 
+testGradientLogic :: Test
+testGradientLogic = TestList
+  [ "averageGradientComponent: Single element" ~:
+      averageGradientComponent wSentenceLength [Weights 1 0 0 0 0 0 0] 1.0 ~?~ 1.0
+
+  , "averageGradientComponent: Multiple identical" ~:
+      averageGradientComponent wSentenceLength
+        [ Weights 2 0 0 0 0 0 0
+        , Weights 2 0 0 0 0 0 0
+        , Weights 2 0 0 0 0 0 0
+        ] 3.0 ~?~ 2.0
+
+  , "averageGradientComponent: Different values" ~:
+      averageGradientComponent wSentenceLength
+        [ Weights 1 0 0 0 0 0 0
+        , Weights 3 0 0 0 0 0 0
+        ] 2.0 ~?~ 2.0
+  ]
 --------------------------------------------------------------------------------
 -- QuickCheck Properties
 --------------------------------------------------------------------------------

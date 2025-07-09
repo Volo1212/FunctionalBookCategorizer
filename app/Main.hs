@@ -5,7 +5,6 @@ import System.FilePath ((</>))
 import qualified Data.Text.IO as TIO
 import System.CPUTime
 import Text.Printf
-import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.List as L
 import Control.Monad (forM, when)
@@ -14,69 +13,94 @@ import Data.Maybe (mapMaybe)
 
 import Types
 import CoreLogic
-import Helpers
-
-loadBooksFromDir :: FilePath -> Classification -> IO [(Text, Classification)]
-loadBooksFromDir dir classification = do
-  files <- listDirectory dir
-  let txtFiles = L.filter (L.isSuffixOf ".txt") files
-  forM txtFiles $ \file -> do
-    content <- TIO.readFile (dir </> file)
-    return (content, classification)
 
 timeSth :: String -> IO a -> IO a
 timeSth label action = do
   start <- getCPUTime
   result <- action >>= evaluate
   end <- getCPUTime
-  let seconds = fromIntegral (end - start) / (10^12)
-  printf "   -> %s: %.3f Sekunden\n" label (seconds :: Double)
+  let seconds = (fromIntegral (end - start) :: Double) / 1e12
+  printf "   -> %s: %.3f Sekunden\n" label seconds
   return result
 
--- NEU: Eine sichere Funktion zur Berechnung der Genauigkeit, um Division durch Null zu vermeiden.
+loadBooksFromDir :: FilePath -> Classification -> IO [(Text, Classification)]
+loadBooksFromDir dir label = do
+  allFiles <- listDirectory dir
+  let txtFiles = filter (L.isSuffixOf ".txt") allFiles
+  forM txtFiles $ \file -> do
+    content <- TIO.readFile (dir </> file)
+    return (content, label)
+
 safeAccuracy :: Int -> Int -> Double
 safeAccuracy correct total
   | total == 0 = 0.0
   | otherwise  = 100 * fromIntegral correct / fromIntegral total
 
+-- mapMaybe because potentially Nothing values
+-- fmap extracts value from IO container (features,label)
+extractLabeledFeatures :: [(Text, Classification)] -> [(BookFeatures, Classification)]
+extractLabeledFeatures =
+  mapMaybe (\(text, label) -> fmap (\features -> (features, label)) (extractFeatures text))
+
+-- evaluate MODEL accuracy
+evaluateModel :: Weights -> CategoryStats -> [(BookFeatures, Classification)] -> IO ()
+evaluateModel weights stats testSet = do
+  let isCorrect (features, label) = classify weights stats features == label
+      groupByLabel label = filter ((== label) . snd) testSet
+
+      evaluateCategory :: Classification -> IO Int
+      evaluateCategory label = do
+        let items = groupByLabel label
+            correct = length $ filter isCorrect items
+            total = length items
+        printf "   -> Genauigkeit %s: %.2f%% (%d von %d)\n"
+          (show label) (safeAccuracy correct total) correct total
+        return correct
+
+  correctChildren <- evaluateCategory Children
+  correctAdults   <- evaluateCategory Adult
+  let total = length testSet
+      correctTotal = correctChildren + correctAdults
+
+  printf "   -> Gesamtgenauigkeit: %.2f%% (%d von %d)\n"
+    (safeAccuracy correctTotal total) correctTotal total
+
 main :: IO ()
 main = do
-  let learningRate = 0.1
-      lambda = 0.01
-      epochs = 800
+  let learningRate     = 0.1
+      lambda           = 0.01
+      epochs           = 800
+      initialWeights   = Weights 0 0 0 0 0 0 0
 
-  putStrLn "Buchklassifizierungs-Modell v2"
+      childrenTrainFP  = "books/training/children"
+      adultsTrainFP    = "books/training/adults"
+      childrenTestFP   = "books/categorize/children"
+      adultsTestFP     = "books/categorize/adults"
+
+  putStrLn "================================"
+  putStrLn "Buchklassifizierungs-Modell"
   putStrLn "================================"
 
   putStrLn "1. Lade Trainings-Bücher..."
-  let childrenTrainFP = "books/training/children"
-      adultsTrainFP   = "books/training/adults"
-      -- childrenTestFP  = "books/training/children"
-      -- adultsTestFP   = "books/training/adults"
-      childrenTestFP  = "books/categorize/children"
-      adultsTestFP    = "books/categorize/adults"
 
   childrenTrainBooks <- loadBooksFromDir childrenTrainFP Children
   adultsTrainBooks   <- loadBooksFromDir adultsTrainFP Adult
   let trainingBooks = childrenTrainBooks ++ adultsTrainBooks
 
   when (null trainingBooks) $
-    error "Keine Trainings-Bücher gefunden. Stelle sicher, dass 'books/training/*' .txt-Dateien enthält."
-  printf "   -> %d Trainings-Bücher insgesamt geladen.\n" (length trainingBooks)
+    error "Keine Trainings-Bücher gefunden."
+
+  printf "   -> %d Trainings-Bücher geladen.\n" (length trainingBooks)
 
   putStrLn "2. Extrahiere Trainings-Features..."
-  let labeledFeatures = mapMaybe (\(text, label) ->
-          fmap (\features -> (features, label)) (extractFeatures text)
-        ) trainingBooks
-
+  
+  let labeledFeatures = extractLabeledFeatures trainingBooks
   when (null labeledFeatures) $
-    error "Konnte keine Features aus den Trainings-Büchern extrahieren. Sind die Dateien leer?"
+    error "Keine Features extrahiert – prüfen ob Bücher leer sind."
 
   putStrLn "3. Berechne globale Normalisierungsstatistiken..."
-
-  globalStats <- case calculateGlobalStats $ map fst labeledFeatures of
-    Just stats -> return stats
-    Nothing    -> error "Konnte keine globalen Statistikdaten berechnen (wahrscheinlich leere Feature-Listen)."
+  globalStats <- maybe (error "Leere Feature-Listen.") return $
+    calculateGlobalStats (map fst labeledFeatures)
 
   putStrLn "4. Initialisiere Trainingsdaten..."
   let trainingData =
@@ -84,13 +108,11 @@ main = do
         | (features, label) <- labeledFeatures
         ]
 
-  putStrLn $ "5. Trainiere Modell (" ++ show epochs ++ " Epochen)..."
-  let initialWeights = Weights 0 0 0 0 0 0 0
-
+  putStrLn $ "5. Trainiere Modell über " ++ show epochs ++ " Epochen..."
   finalWeights <- timeSth "Trainingszeit" $
     return $ trainModel learningRate lambda epochs trainingData initialWeights
 
-  putStrLn "6. Training abgeschlossen. Finale Gewichte:"
+  putStrLn "6. Finale Gewichte:"
   printf "   -> wSentenceLength:    %+.4f\n" (wSentenceLength finalWeights)
   printf "   -> wWordLength:        %+.4f\n" (wWordLength finalWeights)
   printf "   -> wFlesch:            %+.4f\n" (wFlesch finalWeights)
@@ -101,42 +123,16 @@ main = do
 
   putStrLn "\n7. Lade Test-Bücher..."
   childrenTestBooks <- loadBooksFromDir childrenTestFP Children
-  adultsTestBooks   <- loadBooksFromDir adultsTestFP Adult
-  let testBooks = childrenTestBooks ++ adultsTestBooks
+  adultTestBooks <- loadBooksFromDir adultsTestFP Adult
+  let testBooks = childrenTestBooks ++ adultTestBooks 
 
   when (null testBooks) $
-    error "Keine Test-Bücher gefunden. Stelle sicher, dass 'books/categorize/*' .txt-Dateien enthält."
-  printf "   -> %d Test-Bücher insgesamt geladen.\n" (length testBooks)
+    error "Keine Test-Bücher gefunden."
+  printf "   -> %d Test-Bücher geladen.\n" (length testBooks)
 
   putStrLn "8. Extrahiere Test-Features..."
-  let testFeatures = mapMaybe (\(text, label) ->
-          fmap (\features -> (features, label)) (extractFeatures text)
-        ) testBooks
+  let testFeatures = extractLabeledFeatures testBooks
 
-  putStrLn "9. Evaluiere Modellgenauigkeit auf dem TEST-Set..."
-  -- KORREKTUR: Das `_ <-` wurde entfernt. Die Aktion wird einfach ausgeführt.
-  timeSth "Evaluationszeit" $ do
-    let childrenItems = L.filter ((== Children) . snd) testFeatures
-        adultItems    = L.filter ((== Adult) . snd) testFeatures
-
-        isCorrect (features, label) =
-          classify finalWeights globalStats features == label
-
-        correctChildren = length $ filter isCorrect childrenItems
-        correctAdults   = length $ filter isCorrect adultItems
-        totalCorrect    = correctChildren + correctAdults
-
-        totalChildren = length childrenItems
-        totalAdults   = length adultItems
-        totalItems    = totalChildren + totalAdults
-
-    printf "   -> Genauigkeit Kinderbücher: %.2f%% (%d von %d)\n"
-      (safeAccuracy correctChildren totalChildren) correctChildren totalChildren
-
-    printf "   -> Genauigkeit Erwachsenenbücher: %.2f%% (%d von %d)\n"
-      (safeAccuracy correctAdults totalAdults) correctAdults totalAdults
-
-    printf "   -> Gesamtgenauigkeit: %.2f%% (%d von %d)\n"
-      (safeAccuracy totalCorrect totalItems) totalCorrect totalItems
-
-    return ()
+  putStrLn "9. Evaluiere Modell auf TEST-Set..."
+  timeSth "Evaluationszeit" $
+    evaluateModel finalWeights globalStats testFeatures
